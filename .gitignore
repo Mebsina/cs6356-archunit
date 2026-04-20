@@ -6,3 +6,4 @@ arch-eval-benchmark/
 /tensorflow/
 /kafka/
 /istio/
+scratch/
