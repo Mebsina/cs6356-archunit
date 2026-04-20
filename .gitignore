@@ -1,9 +1,8 @@
 arch-eval-benchmark/
-consul/
-spring-framework/
-zookeeper/
-mindspore/
-kubernetes/
-tensorflow/
-kafka/
-istio/
+/consul/
+/spring-framework/
+/zookeeper/
+/kubernetes/
+/tensorflow/
+/kafka/
+/istio/
