@@ -8,8 +8,13 @@
 To initialize the project environment and clone the required benchmark repositories, execute the provided setup script:
 
 ```bash
-# Run the setup script to clone the 9 benchmark repositories
+# Run the setup script to clone the 6 benchmark repositories from ArchEval Benchmark
 ./run.sh
+```
+
+```bash
+# Generate package structure if need to update
+./package.sh
 ```
 
 ## Project Overview
@@ -17,6 +22,16 @@ This project implements an automated enforcement pipeline that translates recove
 
 ## Core Objective
 The primary goal is to bridge the gap between architectural recovery and enforcement. While tools can accurately recover system architectures, those designs often degrade without a continuous validation mechanism. This solution utilizes Large Language Models (LLMs) as translators to convert architecture representations into deterministic ArchUnit rules.
+
+
+## Libraries
+
+The following libraries are utilized for architectural enforcement based on the project language:
+
+| Language | Library |
+| :--- | :--- |
+| Java | [ArchUnit](https://github.com/TNG/ArchUnit) (tngtech/archunit) |
+| Go | [arch-go](https://github.com/fdaines/arch-go) (fdaines/arch-go) |
 
 ## Enforcement Pipeline
 The workflow consists of several integrated stages:

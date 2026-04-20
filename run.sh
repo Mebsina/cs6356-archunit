@@ -12,14 +12,8 @@ git clone https://github.com/spring-projects/spring-framework.git
 # 3 Zookeeper: Java(950), C/C++(59), Python(36)
 git clone https://github.com/apache/zookeeper.git
 
-# 4 MindSpore: Python(11664), C++(1236), YAML(25)
-git clone https://github.com/mindspore-ai/mindspore.git
-
 # 5 Kubernetes: Go(15941), YAML(5225), Markdown(562)
 git clone https://github.com/kubernetes/kubernetes.git
-
-# 6 TensorFlow: C/C++(5973), Python(3133), Markdown(1187)
-git clone https://github.com/tensorflow/tensorflow.git
 
 # 7 Kafka: Java(5549), Python(178), YAML(65)
 git clone https://github.com/apache/kafka.git
