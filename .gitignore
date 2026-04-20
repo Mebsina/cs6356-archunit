@@ -7,3 +7,4 @@ arch-eval-benchmark/
 /kafka/
 /istio/
 scratch/
+target/
