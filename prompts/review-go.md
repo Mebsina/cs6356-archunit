@@ -138,7 +138,3 @@ How to fix it:
 | **LOW** | Cosmetic or maintainability issue (misleading comment, redundant rule, style) |
 
 ---
-
-### Recommended Patch
-
-After all findings, output a consolidated set of all corrected and additional rules as a single valid YAML or Go snippet. This should be copy-pasteable into the existing config or test file with minimal modification.

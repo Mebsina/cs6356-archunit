@@ -134,7 +134,3 @@ How to fix it:
 | **LOW** | Cosmetic or maintainability issue (misleading `.because()`, redundant rule, style) |
 
 ---
-
-### Recommended Patch
-
-After all findings, output a consolidated diff of all corrected and additional rules as a single valid Java snippet. This should be copy-pasteable into the existing test class with minimal modification.
