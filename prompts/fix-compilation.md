@@ -21,8 +21,8 @@ You are an expert engineer resolving compilation errors in architectural rules. 
 ### Log Entry
 ```
 Compile #[N]
-Error: [One-sentence description of the cause]
-Fix: [One-sentence description of the resolution]
+Error: [Brief description of the compiler error]
+Fix: [Summary of the changes made to resolve it]
 ```
 
 ## Constraints
