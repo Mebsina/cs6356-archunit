@@ -76,10 +76,10 @@ If the generated code fails to compile, use the following iterative process:
 - `prompts/`: Contains LLM prompt templates for rule generation and adversarial review.
 - `package-structure/`: Extracted package hierarchies for benchmark repositories.
 - `output/`: Standardized output directory for generated artifacts, organized by `output/[Project Name]/[Model Name]/`.
-    - **Java Outputs**: `ArchitectureEnforcementTest.java`, `pom.xml`, `compile-fix.md`
-    - **Go Outputs**: `arch-go.yml`, `Makefile`, `compile-fix.md`
+    - **Java Outputs**: `ArchitectureEnforcementTest.java`, `pom.xml`, `fix-history.md`
+    - **Go Outputs**: `arch-go.yml`, `Makefile`, `fix-history.md`
     - **Review Outputs**: `feedback#-by-[Reviewer Model Name].md`
 
 ## Inputs and Outputs
 -   **Input**: Architecture representations (PDF/Mermaid), target repository package structures, and generic prompt templates.
--   **Output**: Enforceable test suites, build configurations (Maven/Makefile), comprehensive adversarial validation reports, and iterative compilation logs (`compile-fix.md`).
+-   **Output**: Enforceable test suites, build configurations (Maven/Makefile), comprehensive adversarial validation reports, and iterative compilation logs (`fix-history.md`).
