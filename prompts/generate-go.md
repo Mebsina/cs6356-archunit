@@ -12,12 +12,12 @@ The target project is a Go module (or multi-module workspace). Package paths fol
 ## Architecture Documentation
 
 [Insert Content or Path of Architecture Documentation]
-Example: `arch-eval-benchmark\repos with arch_doc\my-go-service-architecture.pdf`
+Example: `inputs\java\2_spring-projects_spring-framework.pdf`
 
 ## Package Structure
 
 [Insert Content or Path of Package Structure]
-Example: `package-structure\go\my-go-service.txt`
+Example: `inputs\java\2_spring-projects_spring-framework.txt`
 
 ## Output Format
 
