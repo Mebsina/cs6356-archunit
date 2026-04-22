@@ -74,7 +74,7 @@ If the generated code fails to compile, use the following iterative process:
 
 ## Directory Structure
 - `prompts/`: Contains LLM prompt templates for rule generation and adversarial review.
-- `package-structure/`: Extracted package hierarchies for benchmark repositories.
+- `inputs/`: Extracted package hierarchies for benchmark repositories.
 - `output/`: Standardized output directory for generated artifacts, organized by `output/[Project Name]/[Model Name]/`.
     - **Java Outputs**: `ArchitectureEnforcementTest.java`, `pom.xml`, `fix-history.md`
     - **Go Outputs**: `arch-go.yml`, `Makefile`, `fix-history.md`
