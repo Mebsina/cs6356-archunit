@@ -4,12 +4,14 @@ You are an expert engineer resolving compilation errors in architectural rules. 
 
 ### Source Code
 [Insert Content of ArchitectureEnforcementTest.java or arch-go.yml]
+Example: `outputs\zookeeper\gemini3-flash\ArchitectureEnforcementTest.java`
 
 ### Compiler Error
 [Insert Error Output]
+Example: `mvn test`
 
-### History (fix-history.md)
-[Insert Previous Entries or Leave Blank if first attempt]
+### Output Format
+Example: `outputs\zookeeper\gemini3-flash\fix-history.md`
 
 ## Your Task
 
