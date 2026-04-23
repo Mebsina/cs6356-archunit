@@ -22,8 +22,8 @@ Example: `inputs\java\2_spring-projects_spring-framework.txt`
 ## Output Format
 
 ```
-output\[Project Name]\[Model Name]\arch-go.yml
-output\[Project Name]\[Model Name]\Makefile
+outputs\[Project Name]\[Model Name]\arch-go.yml
+outputs\[Project Name]\[Model Name]\Makefile
 ```
 
 ## Your Task

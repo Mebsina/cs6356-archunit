@@ -23,8 +23,8 @@ Example: `inputs\java\2_spring-projects_spring-framework.txt`
 ## Output Format
 
 ```
-output\[Project Name]\[Model Name]\ArchitectureEnforcementTest.java
-output\[Project Name]\[Model Name]\pom.xml
+outputs\[Project Name]\[Model Name]\ArchitectureEnforcementTest.java
+outputs\[Project Name]\[Model Name]\pom.xml
 ```
 
 ## Your Task

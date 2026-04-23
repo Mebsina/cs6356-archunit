@@ -22,10 +22,10 @@ Reviewer Model Name - e.g., opus-4-7
 ## Output Format
 
 ```
-output\[Project Name]\[Reviewed Model Name]\feedback#-by-[Reviewer Model Name].md
+outputs\[Project Name]\[Reviewed Model Name]\feedback#-by-[Reviewer Model Name].md
 ```
 
-`e.g. output\spring-framework\sonnet-4-6\feedback1-by-opus-4-7.md`
+`e.g. outputs\spring-framework\sonnet-4-6\feedback1-by-opus-4-7.md`
 
 The file must be valid Markdown. Use the exact heading and template structure defined in the **Output Format** section below. The Recommended Patch code block must be fenced with ` ```java ` so it renders correctly and can be copied directly into the test class.
 
