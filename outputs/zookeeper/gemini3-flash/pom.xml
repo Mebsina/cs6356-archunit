@@ -46,7 +46,6 @@
                 <configuration>
                     <additionalClasspathElements>
                         <additionalClasspathElement>../../../zookeeper/zookeeper-server/target/classes</additionalClasspathElement>
-                        <additionalClasspathElement>../../../zookeeper/zookeeper-jute/target/classes</additionalClasspathElement>
                         <additionalClasspathElement>../../../zookeeper/zookeeper-metrics-providers/zookeeper-prometheus-metrics/target/classes</additionalClasspathElement>
                         <additionalClasspathElement>../../../zookeeper/zookeeper-recipes/zookeeper-recipes-election/target/classes</additionalClasspathElement>
                         <additionalClasspathElement>../../../zookeeper/zookeeper-recipes/zookeeper-recipes-lock/target/classes</additionalClasspathElement>
