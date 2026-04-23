@@ -71,7 +71,6 @@ public class ArchitectureEnforcementTest {
                         .whereLayer("Client").mayOnlyBeAccessedByLayers("Recipes", "Tools")
                         .whereLayer("ClientApi").mayOnlyBeAccessedByLayers("Client", "Recipes", "Tools", "Server")
                         .whereLayer("Server").mayOnlyBeAccessedByLayers("ClientApi")
-                        .whereLayer("Support").mayBeAccessedByAllLayers()
                         .as("The architectural sub-systems should remain decoupled and respect the public API boundaries")
                         .because("ZooKeeper's scalability and stability rely on a clear separation between client contracts and server implementations.");
 
