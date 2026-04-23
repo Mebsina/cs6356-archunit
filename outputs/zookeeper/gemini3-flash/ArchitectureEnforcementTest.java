@@ -53,7 +53,6 @@ public class ArchitectureEnforcementTest {
                         .whereLayer("Recipes").mayOnlyBeAccessedByLayers("Tools")
                         .whereLayer("Client").mayOnlyBeAccessedByLayers("Recipes", "Tools", "Compatibility")
                         .whereLayer("Server").mayOnlyBeAccessedByLayers("Compatibility")
-                        .whereLayer("Support").mayBeAccessedByAllLayers()
                         .as("The architectural layers should follow the defined dependency hierarchy")
                         .because("Maintaining strict layer boundaries prevents cyclic dependencies and ensures system maintainability.");
 
