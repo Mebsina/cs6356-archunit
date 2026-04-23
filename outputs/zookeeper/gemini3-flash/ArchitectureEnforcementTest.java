@@ -75,19 +75,16 @@ public class ArchitectureEnforcementTest {
                                         .or(simpleName("ByteBufferInputStream"))
                                         .or(simpleName("ZooTrace"))
                                         .or(simpleName("ExitCode"))
-                                        .or(simpleName("EphemeralType"))
-                                        .or(simpleName("EphemeralTypeEmulate353"))
-                                        .or(simpleName("EphemeralType$1")))
+                                        .or(nameStartingWith("org.apache.zookeeper.server.EphemeralType")))
                         .as("shared utilities directly in org.apache.zookeeper.server");
 
         private static final DescribedPredicate<JavaClass> shared_server_subpackage_utilities = resideInAPackage(
                         "org.apache.zookeeper.server.util")
                         .and(simpleName("ConfigUtils")
-                                        .or(simpleName("VerifyingFileFactory"))
-                                        .or(simpleName("VerifyingFileFactory$Builder")))
+                                        .or(nameStartingWith("org.apache.zookeeper.server.util.VerifyingFileFactory"))
+                                        .or(simpleName("KerberosUtil")))
                         .or(resideInAPackage("org.apache.zookeeper.server.auth")
-                                        .and(simpleName("KerberosName")
-                                                        .or(simpleName("ProviderRegistry"))))
+                                        .and(nameStartingWith("org.apache.zookeeper.server.auth.KerberosName")))
                         .or(resideInAPackage("org.apache.zookeeper.server.watch")
                                         .and(simpleName("PathParentIterator")))
                         .or(resideInAnyPackage("org.apache.zookeeper.server.metric.."))
@@ -154,11 +151,15 @@ public class ArchitectureEnforcementTest {
                         // Handle legitimate administrative CLI tool reaching server quorum config
                         .ignoreDependency(simpleName("ReconfigCommand"),
                                         resideInAnyPackage("org.apache.zookeeper.server.quorum.."))
-                        // Handle ZooTrace internal bleed-throughs to quorum and request internals
+                        // Handle ZooTrace shared-utility bleed-through to quorum and Request
                         .ignoreDependency(simpleName("ZooTrace"),
                                         resideInAnyPackage("org.apache.zookeeper.server.quorum..")
                                                         .or(resideInAPackage("org.apache.zookeeper.server")
                                                                         .and(simpleName("Request"))))
+                        // Handle ConfigUtils bridging to quorum internals to expose client strings
+                        .ignoreDependency(simpleName("ConfigUtils"),
+                                        resideInAPackage("org.apache.zookeeper.server.quorum..")
+                                                        .and(nameStartingWith("org.apache.zookeeper.server.quorum.QuorumPeer")))
 
                         .as("Client-side and server-side sub-systems remain decoupled")
                         .because("Per PDF sections 1.1 and 1.7, ZooKeeper clients and "

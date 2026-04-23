@@ -89,3 +89,13 @@ analyze2-by-opus-4-7
 - Implemented specific ignoreDependency rules for ZooTrace's internal references to quorum and request internals.
 - Finalized precise package-to-layer mapping to resolve the remaining 160 violations.
 
+13. Thirteenth generation after third violation analysis
+
+analyze3-by-opus-4-7
+
+- Switched to nameStartingWith prefix matching for EphemeralType, VerifyingFileFactory, and KerberosName to correctly capture all nested, inner, and anonymous classes which were previously missed by simpleName.
+- Removed ProviderRegistry from the shared utilities list as it was verified to be server-internal with no inbound edges from non-server layers.
+- Added KerberosUtil to the shared server.util list as it is a required dependency for the shared KerberosName utility.
+- Implemented a targeted ignoreDependency for ConfigUtils' documented bridge to quorum configuration internals.
+- Eliminated 30 residual mapping errors, achieving a high-fidelity architectural model that aligns with the ZooKeeper codebase.
+
