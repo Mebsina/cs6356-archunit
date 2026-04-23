@@ -1,29 +1,50 @@
 /**
  * Architectural enforcement tests for Apache ZooKeeper.
  *
- * ZooKeeper is logically split into two sibling sub-systems communicating
- * only via the wire protocol:
+ * ZooKeeper is logically split into client- and server-side sub-systems
+ * that share only a narrow public-API contract and communicate at runtime
+ * via the TCP wire protocol:
  *
  *                     +-------------------+
- *                     |    Tooling/CLI    |   (cli, inspector, graph)
+ *                     |    Tooling/CLI    |   cli, inspector, graph
  *                     +---------+---------+
  *                               |
- *   +-------------+     +-------v-------+     +---------------+
- *   |   Recipes   | --> |    Client     |     |    Server     |
- *   |  (recipes)  |     |  (root + api  |     |   (server)    |
- *   +-------------+     |   + admin +   |     +-------+-------+
- *                       |    retry)     |             |
- *                       +-------+-------+             |
- *                               |                     |
- *                       +-------v---------------------v-------+
- *                       |             Support                 |
- *                       |  (common, util, metrics, jmx,       |
- *                       |   audit, compat, compatibility)     |
- *                       +-------------------------------------+
+ *   +-------------+     +-------v-------+
+ *   |   Recipes   | --> |    Client     |   client, admin, retry
+ *   |  (recipes)  |     +-------+-------+
+ *   +------+------+             |
+ *          |                    |
+ *          v                    v
+ *          +--------+------------+--------+
+ *                   |  PublicApi  |                   root:
+ *                   |   (shared   |          ZooKeeper, KeeperException,
+ *                   |   contract) |     Watcher, CreateMode, ZooDefs, ...
+ *                   +------+------+
+ *                          ^
+ *                          |
+ *                   +------+------+
+ *                   |   Server    |   server (isolated; only reaches down
+ *                   +------+------+       to PublicApi and Support)
+ *                          |
+ *                          v
+ *                   +------+------------------------------+
+ *                   |             Support                 |
+ *                   |  (common, util, metrics, jmx,       |
+ *                   |   audit, compat, compatibility)     |
+ *                   +-------------------------------------+
+ *
+ * Allowed edges (summary):
+ *   - Support      is reachable from every layer; it reaches PublicApi.
+ *   - PublicApi    is reachable from every layer; it reaches Client and Support.
+ *   - Client       reaches PublicApi and Support; reachable by PublicApi,
+ *                  Recipes, Tools.
+ *   - Server       reaches PublicApi and Support; not reachable from any layer.
+ *   - Recipes      reach Client, PublicApi, Support; reachable only by Tools.
+ *   - Tools        reach everything except Server; not reachable from any layer.
  *
  * Excluded packages:
- *   - org.apache.zookeeper.test.. — contains JUnit fixtures and benchmarks
- *     that live under src/test/java; excluded via ImportOption.DoNotIncludeTests.
+ *   - org.apache.zookeeper.test..  JUnit fixtures under src/test/java,
+ *                                   excluded via DoNotIncludeTests.
  */
 package org.apache.zookeeper;
 
@@ -75,7 +96,10 @@ public class ArchitectureEnforcementTest {
                                         "Support", // audit/compatibility/common touch root types
                                         "Client", "Server", // both sides share the contract (KeeperException, Watcher)
                                         "Recipes", "Tools")
+                        // NOTE: graph in Tools layer may legitimately read server-side log formats.
+                        // Currently excluded from classpath; if added, a relaxation may be needed here.
                         .whereLayer("Server").mayNotBeAccessedByAnyLayer()
+                        // .whereLayer("Support").mayBeAccessedByAllLayers()
 
                         .as("Client-side and server-side sub-systems remain decoupled")
                         .because("Per PDF sections 1.1 and 1.7, ZooKeeper clients and "
@@ -117,6 +141,8 @@ public class ArchitectureEnforcementTest {
 
         // --- Build Integrity -----------------------------------------------------
 
+        // Tripwire: should always pass on a healthy build. Would fire only if a
+        // test-fixture class were ever promoted from src/test/java to src/main/java.
         @ArchTest
         public static final ArchRule test_package_must_not_ship_in_production = noClasses()
                         .should().resideInAPackage("org.apache.zookeeper.test..")
