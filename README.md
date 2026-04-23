@@ -8,7 +8,7 @@
 To initialize the project environment and clone the required benchmark repositories, execute the provided setup script:
 
 ```bash
-# Run the setup script to clone the 6 benchmark repositories from ArchEval Benchmark
+# Run the setup script and select the repositories to clone (All, Java, or Go)
 ./run.sh
 ```
 
