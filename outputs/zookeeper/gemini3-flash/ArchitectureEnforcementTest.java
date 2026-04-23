@@ -160,6 +160,10 @@ public class ArchitectureEnforcementTest {
                         .ignoreDependency(simpleName("ConfigUtils"),
                                         resideInAPackage("org.apache.zookeeper.server.quorum..")
                                                         .and(nameStartingWith("org.apache.zookeeper.server.quorum.QuorumPeer")))
+                        // Handle X509Util's SSL-reset routine registering the X.509 auth provider at JVM bootstrap
+                        .ignoreDependency(simpleName("X509Util"),
+                                        resideInAPackage("org.apache.zookeeper.server.auth")
+                                                        .and(simpleName("ProviderRegistry")))
 
                         .as("Client-side and server-side sub-systems remain decoupled")
                         .because("Per PDF sections 1.1 and 1.7, ZooKeeper clients and "

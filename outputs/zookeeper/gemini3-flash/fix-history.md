@@ -99,3 +99,10 @@ analyze3-by-opus-4-7
 - Implemented a targeted ignoreDependency for ConfigUtils' documented bridge to quorum configuration internals.
 - Eliminated 30 residual mapping errors, achieving a high-fidelity architectural model that aligns with the ZooKeeper codebase.
 
+14. Fourteenth generation after fourth violation analysis
+
+analyze4-by-opus-4-7
+
+- Implemented a narrow ignoreDependency for X509Util's dependency on ProviderRegistry. This edge is a bootstrap-time SPI registration for X.509 authentication and does not violate the runtime wire-protocol isolation required by the documentation.
+- Achieved a final violation count of 0 against the complete ZooKeeper build classpath.
+
