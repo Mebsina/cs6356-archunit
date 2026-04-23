@@ -79,6 +79,7 @@ public class ArchitectureEnforcementTest {
                     "Client", "Server",            // both sides share the contract (KeeperException, Watcher)
                     "Recipes", "Tools")
             .whereLayer("Server").mayNotBeAccessedByAnyLayer()
+            .whereLayer("Support").mayBeAccessedByAllLayers()
 
             .as("Client-side and server-side sub-systems remain decoupled")
             .because("Per PDF sections 1.1 and 1.7, ZooKeeper clients and "
