@@ -60,3 +60,11 @@ feedback5-by-opus-4-7
 - Added a defensive tripwire comment to the test package exclusion rule, noting it should only fire if fixtures are promoted to production (F-R5-02).
 - Documented the architectural decision regarding the graph module's log-reading capabilities within the layered rule (F-R5-03).
 
+10. Tenth generation after review 6th round of feedback
+
+feedback6-by-opus-4-7
+
+- Removed unused static import resideInAnyPackage (F-R6-01).
+- Deleted dead commented code .whereLayer("Support").mayBeAccessedByAllLayers() (F-R6-02).
+- Finalized architecture validation suite with 100% coverage and zero warnings.
+

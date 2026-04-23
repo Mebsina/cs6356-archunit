@@ -54,7 +54,6 @@ import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAPackage;
-import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAnyPackage;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
@@ -98,8 +97,9 @@ public class ArchitectureEnforcementTest {
                                         "Recipes", "Tools")
                         // NOTE: graph in Tools layer may legitimately read server-side log formats.
                         // Currently excluded from classpath; if added, a relaxation may be needed here.
+                        // Support has no `whereLayer(...)` restriction — every layer is free to depend
+                        // on it (this is ArchUnit's default when no inbound restriction is set).
                         .whereLayer("Server").mayNotBeAccessedByAnyLayer()
-                        // .whereLayer("Support").mayBeAccessedByAllLayers()
 
                         .as("Client-side and server-side sub-systems remain decoupled")
                         .because("Per PDF sections 1.1 and 1.7, ZooKeeper clients and "
