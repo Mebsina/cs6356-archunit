@@ -36,6 +36,7 @@ import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAPac
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAnyPackage;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
+import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 
 @AnalyzeClasses(
         packages = "org.apache.zookeeper",
@@ -74,19 +75,25 @@ public class ArchitectureEnforcementTest {
                     "PublicApi",                   // root internally references client impl
                     "Recipes", "Tools")
             .whereLayer("PublicApi").mayOnlyBeAccessedByLayers(
+                    "Support",                     // audit/compatibility/common touch root types
                     "Client", "Server",            // both sides share the contract (KeeperException, Watcher)
                     "Recipes", "Tools")
-            .whereLayer("Server").mayOnlyBeAccessedByLayers("PublicApi")
+            .whereLayer("Server").mayNotBeAccessedByAnyLayer()
 
             .as("Client-side and server-side sub-systems remain decoupled")
             .because("Per PDF sections 1.1 and 1.7, ZooKeeper clients and "
                    + "servers communicate only over the TCP wire protocol; "
-                   + "recipes are higher-order primitives built on the "
-                   + "public client API (section 1.8); tooling sits above "
-                   + "— never below — the public API.");
+                   + "the public API contract types (Version, KeeperException, "
+                   + "Watcher, Op, CreateMode, ZooDefs) are the shared vocabulary "
+                   + "that every other layer — including support utilities that "
+                   + "report version, audit operations, or describe error codes — "
+                   + "must be free to reference. Only Server implementation packages "
+                   + "must not leak upward into the public API.");
 
     // --- Fine-grained public-API carve-out -----------------------------------
-    // Documentation-anchored; more specific .because() than the layered rule.
+    // Documentation-only restatement of the layered rule with a contract-specific rationale;
+    // kept so that a PublicApi -> Server violation surfaces with the specific public-API rationale
+    // rather than a generic 'Server may not be accessed' message.
 
     @ArchTest
     public static final ArchRule public_api_must_not_leak_server_types =
@@ -100,30 +107,26 @@ public class ArchitectureEnforcementTest {
                    + "compile against; server-side types must never appear "
                    + "in its transitive surface.");
 
-    // --- Recipes & tooling isolation -----------------------------------------
+    // --- Recipe Isolation ----------------------------------------------------
 
     @ArchTest
-    public static final ArchRule recipes_only_depend_on_client_or_support =
-        noClasses()
-            .that().resideInAPackage("org.apache.zookeeper.recipes..")
-            .should().dependOnClassesThat(resideInAnyPackage(
-                    "org.apache.zookeeper.server..",
-                    "org.apache.zookeeper.cli..",
-                    "org.apache.zookeeper.inspector..",
-                    "org.apache.zookeeper.graph.."))
-            .because("Per PDF section 1.8, recipes are higher-order "
-                   + "operations built on the simple public client API "
-                   + "(including admin), not on server internals or tools.");
+    public static final ArchRule recipe_modules_are_independent =
+        slices().matching("org.apache.zookeeper.recipes.(*)..")
+            .should().notDependOnEachOther()
+            .because("Each recipe (lock, queue, leader) is an independent "
+                   + "coordination primitive; they must not compile-depend "
+                   + "on one another.");
 
     // --- Build Integrity -----------------------------------------------------
 
     @ArchTest
     public static final ArchRule test_package_must_not_ship_in_production =
         noClasses()
-            .that().resideInAPackage("org.apache.zookeeper.test..")
-            .should().haveSimpleNameNotEndingWith("")      // i.e. "should not exist"
+            .should().resideInAPackage("org.apache.zookeeper.test..")
             .because("org.apache.zookeeper.test.* is test-scope fixtures and "
-                   + "benchmarks; ImportOption.DoNotIncludeTests excludes them "
-                   + "when compiled under src/test/java. Any such class found "
-                   + "on the main classpath indicates a broken build.");
+                   + "benchmarks. ImportOption.DoNotIncludeTests excludes them "
+                   + "when compiled under src/test/java, so the importer "
+                   + "should never see them. Any class found here on the main "
+                   + "classpath indicates a broken build or a fixture "
+                   + "accidentally promoted to production.");
 }

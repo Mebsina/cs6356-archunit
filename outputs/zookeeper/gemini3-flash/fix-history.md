@@ -36,3 +36,14 @@ feedback3-by-opus-4-7
 Compile Error #3
 Error: cannot find symbol method mayBeAccessedByAllLayers() in LayerDependencySpecification after review 3rd round feedback application.
 Fix: Removed the invalid .mayBeAccessedByAllLayers() call which was reintroduced during the integration of review feedback.
+
+7. Seventh generation after review 4th round of feedback
+
+feedback4-by-opus-4-7
+
+- Permitted Support layer to access PublicApi root package to handle legitimate dependencies from compatibility and audit utilities (F-R4-01).
+- Corrected vacuous test_package_must_not_ship_in_production rule by using the idiomatic resideInAPackage() check (F-R4-02).
+- Simplified Server access to mayNotBeAccessedByAnyLayer() as it was already fully restricted by fine-grained rules (F-R4-03).
+- Replaced redundant recipes rule with a slice-based enforcement ensuring that individual recipe modules (lock, queue, leader) are independent (F-R4-04).
+
+
