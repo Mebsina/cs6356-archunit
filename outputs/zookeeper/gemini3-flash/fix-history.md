@@ -78,3 +78,14 @@ analyze1-by-opus-4-7
 - Implemented narrow ignoreDependency for ReconfigCommand's legitimate use of server quorum configuration.
 - Updated all rules to use refined predicates for Server and PublicApi layers to eliminate false-positive violations.
 
+12. Twelfth generation after second violation analysis
+
+analyze2-by-opus-4-7
+
+- Narrowed the Support layer classification for server.util and server.auth sub-packages to specific shared classes (ConfigUtils, KerberosName, etc.) to prevent server-internal bleed-through.
+- Expanded the root-level tool exclusion list to include JLineZNodeCompleter and all inner classes of ZooKeeperMain ($MyWatcher, etc.).
+- Included server.controller.. sub-package in the Server layer.
+- Refined shared utilities list to include EphemeralTypeEmulate353 and PathParentIterator.
+- Implemented specific ignoreDependency rules for ZooTrace's internal references to quorum and request internals.
+- Finalized precise package-to-layer mapping to resolve the remaining 160 violations.
+

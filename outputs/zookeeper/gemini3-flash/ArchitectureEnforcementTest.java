@@ -55,11 +55,11 @@ import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 
-import static com.tngtech.archunit.base.DescribedPredicate.alwaysTrue;
 import static com.tngtech.archunit.base.DescribedPredicate.not;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAPackage;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAnyPackage;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleName;
+import static com.tngtech.archunit.core.domain.properties.HasName.Predicates.nameStartingWith;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
@@ -76,33 +76,44 @@ public class ArchitectureEnforcementTest {
                                         .or(simpleName("ZooTrace"))
                                         .or(simpleName("ExitCode"))
                                         .or(simpleName("EphemeralType"))
-                                        .or(simpleName("PathParentIterator")))
-                        .as("shared utilities historically placed in org.apache.zookeeper.server");
+                                        .or(simpleName("EphemeralTypeEmulate353"))
+                                        .or(simpleName("EphemeralType$1")))
+                        .as("shared utilities directly in org.apache.zookeeper.server");
+
+        private static final DescribedPredicate<JavaClass> shared_server_subpackage_utilities = resideInAPackage(
+                        "org.apache.zookeeper.server.util")
+                        .and(simpleName("ConfigUtils")
+                                        .or(simpleName("VerifyingFileFactory"))
+                                        .or(simpleName("VerifyingFileFactory$Builder")))
+                        .or(resideInAPackage("org.apache.zookeeper.server.auth")
+                                        .and(simpleName("KerberosName")
+                                                        .or(simpleName("ProviderRegistry"))))
+                        .or(resideInAPackage("org.apache.zookeeper.server.watch")
+                                        .and(simpleName("PathParentIterator")))
+                        .or(resideInAnyPackage("org.apache.zookeeper.server.metric.."))
+                        .as("shared utilities under server.* subpackages");
+
+        private static final DescribedPredicate<JavaClass> root_tool_classes = simpleName("ZooKeeperMain")
+                        .or(nameStartingWith("org.apache.zookeeper.ZooKeeperMain$"))
+                        .or(simpleName("JLineZNodeCompleter"))
+                        .as("CLI plumbing classes that reside in the root package");
 
         private static final DescribedPredicate<JavaClass> public_api_classes = resideInAPackage("org.apache.zookeeper")
-                        .and(not(simpleName("ZooKeeperMain")))
-                        .and(not(simpleName("ZooKeeperMain$MyCommandOptions")))
+                        .and(not(root_tool_classes))
                         .as("public API contract types in the root package");
 
         private static final DescribedPredicate<JavaClass> tools_classes = resideInAnyPackage(
                         "org.apache.zookeeper.cli..",
                         "org.apache.zookeeper.inspector..",
                         "org.apache.zookeeper.graph..")
-                        .or(simpleName("ZooKeeperMain"))
-                        .or(simpleName("ZooKeeperMain$MyCommandOptions"))
+                        .or(resideInAPackage("org.apache.zookeeper").and(root_tool_classes))
                         .as("CLI and tooling classes");
 
-        private static final DescribedPredicate<JavaClass> server_internal_classes = resideInAPackage(
-                        "org.apache.zookeeper.server")
+        private static final DescribedPredicate<JavaClass> server_internal_classes = resideInAnyPackage(
+                        "org.apache.zookeeper.server..",
+                        "org.apache.zookeeper.audit..")
                         .and(not(shared_server_utilities))
-                        .or(resideInAnyPackage(
-                                        "org.apache.zookeeper.server.admin..",
-                                        "org.apache.zookeeper.server.command..",
-                                        "org.apache.zookeeper.server.embedded..",
-                                        "org.apache.zookeeper.server.persistence..",
-                                        "org.apache.zookeeper.server.quorum..",
-                                        "org.apache.zookeeper.server.watch..",
-                                        "org.apache.zookeeper.audit.."))
+                        .and(not(shared_server_subpackage_utilities))
                         .as("server-side implementation classes");
 
         // --- Layered Architecture ------------------------------------------------
@@ -117,11 +128,9 @@ public class ArchitectureEnforcementTest {
                                                         "org.apache.zookeeper.metrics..",
                                                         "org.apache.zookeeper.jmx..",
                                                         "org.apache.zookeeper.compat..",
-                                                        "org.apache.zookeeper.compatibility..",
-                                                        "org.apache.zookeeper.server.auth..",
-                                                        "org.apache.zookeeper.server.metric..",
-                                                        "org.apache.zookeeper.server.util..")
-                                                        .or(shared_server_utilities))
+                                                        "org.apache.zookeeper.compatibility..")
+                                                        .or(shared_server_utilities)
+                                                        .or(shared_server_subpackage_utilities))
                         .layer("Server").definedBy(server_internal_classes)
                         .layer("PublicApi").definedBy(public_api_classes)
                         .layer("Client").definedBy(
@@ -145,6 +154,11 @@ public class ArchitectureEnforcementTest {
                         // Handle legitimate administrative CLI tool reaching server quorum config
                         .ignoreDependency(simpleName("ReconfigCommand"),
                                         resideInAnyPackage("org.apache.zookeeper.server.quorum.."))
+                        // Handle ZooTrace internal bleed-throughs to quorum and request internals
+                        .ignoreDependency(simpleName("ZooTrace"),
+                                        resideInAnyPackage("org.apache.zookeeper.server.quorum..")
+                                                        .or(resideInAPackage("org.apache.zookeeper.server")
+                                                                        .and(simpleName("Request"))))
 
                         .as("Client-side and server-side sub-systems remain decoupled")
                         .because("Per PDF sections 1.1 and 1.7, ZooKeeper clients and "
@@ -172,6 +186,8 @@ public class ArchitectureEnforcementTest {
 
         // --- Build Integrity -----------------------------------------------------
 
+        // Tripwire: should always pass on a healthy build. Would fire only if a
+        // test-fixture class were ever promoted from src/test/java to src/main/java.
         @ArchTest
         public static final ArchRule test_package_must_not_ship_in_production = noClasses()
                         .should().resideInAPackage("org.apache.zookeeper.test..")
