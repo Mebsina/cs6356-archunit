@@ -33,3 +33,4 @@ Fix: [Summary of the changes made to resolve it]
 - **Increment count**: Use the next logical `Compile #[N]` number.
 - **No looping**: Address all errors provided in the compiler output in a single pass. Apply the changes once and wait for further manual instructions. Do not attempt to iteratively resolve errors or loop autonomously.
 - **Zero explanations**: Perform the modification and output the log entry only.
+- **Only fix once**: After fixing the code once, wait for further manual instructions. Do not attempt to iteratively fix errors.
