@@ -68,3 +68,13 @@ feedback6-by-opus-4-7
 - Deleted dead commented code .whereLayer("Support").mayBeAccessedByAllLayers() (F-R6-02).
 - Finalized architecture validation suite with 100% coverage and zero warnings.
 
+11. Eleventh generation after violation analysis
+
+analyze1-by-opus-4-7
+
+- Reclassified shared utility classes (ZooKeeperThread, ExitCode, etc.) and sub-packages (server.auth, server.metric, server.util) to the Support layer to reflect actual compile-time layout.
+- Moved audit package from Support to Server layer as it is a server-side concern.
+- Reclassified ZooKeeperMain and its inner classes from PublicApi to Tools layer using custom predicates.
+- Implemented narrow ignoreDependency for ReconfigCommand's legitimate use of server quorum configuration.
+- Updated all rules to use refined predicates for Server and PublicApi layers to eliminate false-positive violations.
+

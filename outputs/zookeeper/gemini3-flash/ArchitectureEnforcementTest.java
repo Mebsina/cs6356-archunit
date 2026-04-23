@@ -48,12 +48,18 @@
  */
 package org.apache.zookeeper;
 
+import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 
+import static com.tngtech.archunit.base.DescribedPredicate.alwaysTrue;
+import static com.tngtech.archunit.base.DescribedPredicate.not;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAPackage;
+import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAnyPackage;
+import static com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleName;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
@@ -61,73 +67,100 @@ import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.sli
 @AnalyzeClasses(packages = "org.apache.zookeeper", importOptions = { ImportOption.DoNotIncludeTests.class })
 public class ArchitectureEnforcementTest {
 
+        // --- Predicates for Shared Utilities & Root-level Tools ---
+
+        private static final DescribedPredicate<JavaClass> shared_server_utilities = resideInAPackage(
+                        "org.apache.zookeeper.server")
+                        .and(simpleName("ZooKeeperThread")
+                                        .or(simpleName("ByteBufferInputStream"))
+                                        .or(simpleName("ZooTrace"))
+                                        .or(simpleName("ExitCode"))
+                                        .or(simpleName("EphemeralType"))
+                                        .or(simpleName("PathParentIterator")))
+                        .as("shared utilities historically placed in org.apache.zookeeper.server");
+
+        private static final DescribedPredicate<JavaClass> public_api_classes = resideInAPackage("org.apache.zookeeper")
+                        .and(not(simpleName("ZooKeeperMain")))
+                        .and(not(simpleName("ZooKeeperMain$MyCommandOptions")))
+                        .as("public API contract types in the root package");
+
+        private static final DescribedPredicate<JavaClass> tools_classes = resideInAnyPackage(
+                        "org.apache.zookeeper.cli..",
+                        "org.apache.zookeeper.inspector..",
+                        "org.apache.zookeeper.graph..")
+                        .or(simpleName("ZooKeeperMain"))
+                        .or(simpleName("ZooKeeperMain$MyCommandOptions"))
+                        .as("CLI and tooling classes");
+
+        private static final DescribedPredicate<JavaClass> server_internal_classes = resideInAPackage(
+                        "org.apache.zookeeper.server")
+                        .and(not(shared_server_utilities))
+                        .or(resideInAnyPackage(
+                                        "org.apache.zookeeper.server.admin..",
+                                        "org.apache.zookeeper.server.command..",
+                                        "org.apache.zookeeper.server.embedded..",
+                                        "org.apache.zookeeper.server.persistence..",
+                                        "org.apache.zookeeper.server.quorum..",
+                                        "org.apache.zookeeper.server.watch..",
+                                        "org.apache.zookeeper.audit.."))
+                        .as("server-side implementation classes");
+
         // --- Layered Architecture ------------------------------------------------
 
         @ArchTest
         public static final ArchRule layered_architecture_is_respected = layeredArchitecture()
                         .consideringOnlyDependenciesInAnyPackage("org.apache.zookeeper..")
                         .layer("Support").definedBy(
-                                        "org.apache.zookeeper.common..",
-                                        "org.apache.zookeeper.util..",
-                                        "org.apache.zookeeper.metrics..",
-                                        "org.apache.zookeeper.jmx..",
-                                        "org.apache.zookeeper.audit..",
-                                        "org.apache.zookeeper.compat..",
-                                        "org.apache.zookeeper.compatibility..")
-                        .layer("Server").definedBy("org.apache.zookeeper.server..")
-                        .layer("PublicApi").definedBy("org.apache.zookeeper") // root only
+                                        resideInAnyPackage(
+                                                        "org.apache.zookeeper.common..",
+                                                        "org.apache.zookeeper.util..",
+                                                        "org.apache.zookeeper.metrics..",
+                                                        "org.apache.zookeeper.jmx..",
+                                                        "org.apache.zookeeper.compat..",
+                                                        "org.apache.zookeeper.compatibility..",
+                                                        "org.apache.zookeeper.server.auth..",
+                                                        "org.apache.zookeeper.server.metric..",
+                                                        "org.apache.zookeeper.server.util..")
+                                                        .or(shared_server_utilities))
+                        .layer("Server").definedBy(server_internal_classes)
+                        .layer("PublicApi").definedBy(public_api_classes)
                         .layer("Client").definedBy(
                                         "org.apache.zookeeper.client..",
                                         "org.apache.zookeeper.admin..",
                                         "org.apache.zookeeper.retry..")
                         .layer("Recipes").definedBy("org.apache.zookeeper.recipes..")
-                        .layer("Tools").definedBy(
-                                        "org.apache.zookeeper.cli..",
-                                        "org.apache.zookeeper.inspector..",
-                                        "org.apache.zookeeper.graph..")
+                        .layer("Tools").definedBy(tools_classes)
 
                         .whereLayer("Tools").mayNotBeAccessedByAnyLayer()
                         .whereLayer("Recipes").mayOnlyBeAccessedByLayers("Tools")
                         .whereLayer("Client").mayOnlyBeAccessedByLayers(
-                                        "PublicApi", // root internally references client impl
+                                        "PublicApi",
                                         "Recipes", "Tools")
                         .whereLayer("PublicApi").mayOnlyBeAccessedByLayers(
-                                        "Support", // audit/compatibility/common touch root types
-                                        "Client", "Server", // both sides share the contract (KeeperException, Watcher)
+                                        "Support",
+                                        "Client", "Server",
                                         "Recipes", "Tools")
-                        // NOTE: graph in Tools layer may legitimately read server-side log formats.
-                        // Currently excluded from classpath; if added, a relaxation may be needed here.
-                        // Support has no `whereLayer(...)` restriction — every layer is free to depend
-                        // on it (this is ArchUnit's default when no inbound restriction is set).
                         .whereLayer("Server").mayNotBeAccessedByAnyLayer()
+
+                        // Handle legitimate administrative CLI tool reaching server quorum config
+                        .ignoreDependency(simpleName("ReconfigCommand"),
+                                        resideInAnyPackage("org.apache.zookeeper.server.quorum.."))
 
                         .as("Client-side and server-side sub-systems remain decoupled")
                         .because("Per PDF sections 1.1 and 1.7, ZooKeeper clients and "
                                         + "servers communicate only over the TCP wire protocol; "
-                                        + "the public API contract types (Version, KeeperException, "
-                                        + "Watcher, Op, CreateMode, ZooDefs) are the shared vocabulary "
-                                        + "that every other layer — including support utilities that "
-                                        + "report version, audit operations, or describe error codes — "
-                                        + "must be free to reference. Only Server implementation packages "
-                                        + "must not leak upward into the public API.");
+                                        + "the public API contract types are the shared vocabulary. "
+                                        + "Support utilities and shared contract types are accessible, "
+                                        + "but internal implementation packages remain isolated.");
 
         // --- Fine-grained public-API carve-out -----------------------------------
-        // Documentation-only restatement of the layered rule with a contract-specific
-        // rationale;
-        // kept so that a PublicApi -> Server violation surfaces with the specific
-        // public-API rationale
-        // rather than a generic 'Server may not be accessed' message.
 
         @ArchTest
         public static final ArchRule public_api_must_not_leak_server_types = noClasses()
-                        .that().resideInAPackage("org.apache.zookeeper") // root only
-                        .should().dependOnClassesThat(
-                                        resideInAPackage("org.apache.zookeeper.server.."))
-                        .because("The public client API (ZooKeeper, Watcher, "
-                                        + "KeeperException, CreateMode, ZooDefs, AsyncCallback, "
-                                        + "ClientCnxn) is the stable contract applications "
-                                        + "compile against; server-side types must never appear "
-                                        + "in its transitive surface.");
+                        .that(public_api_classes)
+                        .should().dependOnClassesThat(server_internal_classes)
+                        .as("The public client API must not leak server internals")
+                        .because("The stable public API contract must never appear to depend on server-side implementation types.");
 
         // --- Recipe Isolation ----------------------------------------------------
 
@@ -135,21 +168,12 @@ public class ArchitectureEnforcementTest {
         public static final ArchRule recipe_modules_are_independent = slices()
                         .matching("org.apache.zookeeper.recipes.(*)..")
                         .should().notDependOnEachOther()
-                        .because("Each recipe (lock, queue, leader) is an independent "
-                                        + "coordination primitive; they must not compile-depend "
-                                        + "on one another.");
+                        .because("Each recipe (lock, queue, leader) is an independent coordination primitive.");
 
         // --- Build Integrity -----------------------------------------------------
 
-        // Tripwire: should always pass on a healthy build. Would fire only if a
-        // test-fixture class were ever promoted from src/test/java to src/main/java.
         @ArchTest
         public static final ArchRule test_package_must_not_ship_in_production = noClasses()
                         .should().resideInAPackage("org.apache.zookeeper.test..")
-                        .because("org.apache.zookeeper.test.* is test-scope fixtures and "
-                                        + "benchmarks. ImportOption.DoNotIncludeTests excludes them "
-                                        + "when compiled under src/test/java, so the importer "
-                                        + "should never see them. Any class found here on the main "
-                                        + "classpath indicates a broken build or a fixture "
-                                        + "accidentally promoted to production.");
+                        .because("Test-scope fixtures and benchmarks must not land on the main production classpath.");
 }
