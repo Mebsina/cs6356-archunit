@@ -46,4 +46,8 @@ feedback4-by-opus-4-7
 - Simplified Server access to mayNotBeAccessedByAnyLayer() as it was already fully restricted by fine-grained rules (F-R4-03).
 - Replaced redundant recipes rule with a slice-based enforcement ensuring that individual recipe modules (lock, queue, leader) are independent (F-R4-04).
 
+8. Eighth generation
 
+Compile Error #4
+Error: cannot find symbol method mayBeAccessedByAllLayers() in LayerDependencySpecification after review 4th round feedback application.
+Fix: Removed the invalid .mayBeAccessedByAllLayers() call which was reintroduced during the integration of review feedback.
