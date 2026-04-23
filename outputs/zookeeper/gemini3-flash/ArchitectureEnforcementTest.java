@@ -20,6 +20,10 @@
  *                       |  (common, util, metrics, jmx,       |
  *                       |   audit, compat, compatibility)     |
  *                       +-------------------------------------+
+ *
+ * Excluded packages:
+ *   - org.apache.zookeeper.test.. — contains JUnit fixtures and benchmarks
+ *     that live under src/test/java; excluded via ImportOption.DoNotIncludeTests.
  */
 package org.apache.zookeeper;
 
@@ -53,8 +57,8 @@ public class ArchitectureEnforcementTest {
                     "org.apache.zookeeper.compat..",
                     "org.apache.zookeeper.compatibility..")
             .layer("Server").definedBy("org.apache.zookeeper.server..")
+            .layer("PublicApi").definedBy("org.apache.zookeeper")         // root only
             .layer("Client").definedBy(
-                    "org.apache.zookeeper",                // root (public API)
                     "org.apache.zookeeper.client..",
                     "org.apache.zookeeper.admin..",
                     "org.apache.zookeeper.retry..")
@@ -66,8 +70,13 @@ public class ArchitectureEnforcementTest {
 
             .whereLayer("Tools").mayNotBeAccessedByAnyLayer()
             .whereLayer("Recipes").mayOnlyBeAccessedByLayers("Tools")
-            .whereLayer("Client").mayOnlyBeAccessedByLayers("Recipes", "Tools")
-            .whereLayer("Server").mayNotBeAccessedByAnyLayer()
+            .whereLayer("Client").mayOnlyBeAccessedByLayers(
+                    "PublicApi",                   // root internally references client impl
+                    "Recipes", "Tools")
+            .whereLayer("PublicApi").mayOnlyBeAccessedByLayers(
+                    "Client", "Server",            // both sides share the contract (KeeperException, Watcher)
+                    "Recipes", "Tools")
+            .whereLayer("Server").mayOnlyBeAccessedByLayers("PublicApi")
 
             .as("Client-side and server-side sub-systems remain decoupled")
             .because("Per PDF sections 1.1 and 1.7, ZooKeeper clients and "
@@ -105,4 +114,16 @@ public class ArchitectureEnforcementTest {
             .because("Per PDF section 1.8, recipes are higher-order "
                    + "operations built on the simple public client API "
                    + "(including admin), not on server internals or tools.");
+
+    // --- Build Integrity -----------------------------------------------------
+
+    @ArchTest
+    public static final ArchRule test_package_must_not_ship_in_production =
+        noClasses()
+            .that().resideInAPackage("org.apache.zookeeper.test..")
+            .should().haveSimpleNameNotEndingWith("")      // i.e. "should not exist"
+            .because("org.apache.zookeeper.test.* is test-scope fixtures and "
+                   + "benchmarks; ImportOption.DoNotIncludeTests excludes them "
+                   + "when compiled under src/test/java. Any such class found "
+                   + "on the main classpath indicates a broken build.");
 }
