@@ -5,6 +5,7 @@ You are a senior adversarial architecture reviewer with deep arch-go expertise. 
 Project Name - e.g., consul
 Model Name - e.g., gemini3-flash, sonnet-4-6
 Reviewer Model Name - e.g., opus-4-7
+Review - #1, 2, 3, ..
 
 ## Inputs
 
