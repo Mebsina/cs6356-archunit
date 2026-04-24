@@ -6,8 +6,8 @@ Project Name - e.g., zookeeper
 Model Name - e.g., gemini3-flash, sonnet-4-6
 
 ### Source Code
-[Insert Content of outputs\[Project Name]\[Model Name]\ArchTest.java or arch-go.yml]
-Example: `outputs\[Project Name]\[Model Name]\ArchTest.java`
+[Insert Content of outputs\[Project Name]\[Model Name]\ArchitectureEnforcementTest.java or arch-go.yml]
+Example: `outputs\[Project Name]\[Model Name]\ArchitectureEnforcementTest.java`
 
 ### Compiler Error
 [Insert Error Output]

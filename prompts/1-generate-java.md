@@ -23,7 +23,7 @@ Example: `inputs\java\2_spring-projects_spring-framework.txt`
 ## Output Format
 
 ```
-outputs\[Project Name]\[Model Name]\ArchTest.java
+outputs\[Project Name]\[Model Name]\ArchitectureEnforcementTest.java
 outputs\[Project Name]\[Model Name]\pom.xml
 ```
 
@@ -33,7 +33,7 @@ outputs\[Project Name]\[Model Name]\pom.xml
 2. Map each package to its corresponding layer, including sub-layers such as `Integration` and `Support` where applicable.
 3. Generate ArchUnit rules using the `layeredArchitecture()` API, ensuring parallel layers (like Web and DataAccess) are restricted from accessing each other.
 4. **Fine-grained Intra-layer Rules**: Add specific `noClasses()` rules to enforce module-to-module constraints within layers to prevent circular dependencies (e.g., `module-a` should not depend on `module-b`).
-5. Create `ArchTest.java` with these rules.
+5. Create `ArchitectureEnforcementTest.java` with these rules.
 6. Create a standalone `pom.xml` in the same directory. This Maven configuration MUST:
     - Include `com.tngtech.archunit:archunit-junit5`.
     - Set `<testSourceDirectory>` to `.` for portability.

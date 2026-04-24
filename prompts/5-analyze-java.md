@@ -23,7 +23,7 @@ Iteration Number - 1, 2, 3, … (this loops until mapping-error count is 0)
 
 ### Current ArchUnit Rules
 
-[PASTE THE CONTENT OF outputs\[Project Name]\[Model Name]\ArchTest.java — the version at the start of this iteration]
+[PASTE THE CONTENT OF outputs\[Project Name]\[Model Name]\ArchitectureEnforcementTest.java — the version at the start of this iteration]
 
 ### Surefire Test Report
 

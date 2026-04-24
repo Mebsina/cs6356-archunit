@@ -60,6 +60,12 @@ The process utilizes standardized prompt templates located in the `prompts/` dir
 - **5-Analysis**: `5-analyze-java.md` (Violation Triage)
 - **6-Final**: `6-final-thoughts.md` (Fidelity Calibration)
 
+### Using the Prompts
+All prompt templates are standardized to use variable-based paths. To use them:
+1. Open the prompt file from the `prompts/` directory.
+2. Fill in the **Project Name** and **Model Name** (and **Reviewer Model Name** where applicable) at the very top of the file.
+3. The rest of the prompt (instructions, examples, and output paths) will automatically stay consistent with your project setup.
+
 ### Iterative Triage Workflow
 For violation analysis (Stage 6), use the following process:
 1. Run the enforcement tests and capture the test report.

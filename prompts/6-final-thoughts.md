@@ -23,7 +23,7 @@ Terminating Iteration - the iteration number at which `Results: 0 mapping error`
 
 ### Final ArchUnit Rules
 
-[PASTE THE CONTENT OF outputs\[Project Name]\[Model Name]\ArchTest.java — the final passing version]
+[PASTE THE CONTENT OF outputs\[Project Name]\[Model Name]\ArchitectureEnforcementTest.java — the final passing version]
 
 ### Full Loop History
 

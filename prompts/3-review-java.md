@@ -15,7 +15,7 @@ Reviewer Model Name - e.g., opus-4-7
 [PASTE THE SAME TOP-LEVEL PACKAGE LIST USED IN PROMPT 1]
 
 ### Generated ArchUnit Rules
-[PASTE THE CONTENT OF outputs\[Project Name]\[Model Name]\ArchTest.java]
+[PASTE THE CONTENT OF outputs\[Project Name]\[Model Name]\ArchitectureEnforcementTest.java]
 
 ---
 
