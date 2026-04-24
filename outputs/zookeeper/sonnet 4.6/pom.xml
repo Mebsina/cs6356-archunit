@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>edu.ut.cs6356</groupId>
+    <artifactId>zookeeper-archunit-tests</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <name>ZooKeeper ArchUnit Enforcement Tests</name>
+    <description>
+        Standalone ArchUnit test suite that enforces the layered architecture of
+        Apache ZooKeeper as documented in the official ZooKeeper design documentation.
+    </description>
+
+    <properties>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <archunit.version>1.3.0</archunit.version>
+        <junit.jupiter.version>5.10.2</junit.jupiter.version>
+        <surefire.version>3.2.5</surefire.version>
+        <compiler.plugin.version>3.12.1</compiler.plugin.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <version>${archunit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.jupiter.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <!--
+            Set the test source directory to "." (the directory containing this pom.xml)
+            so that ArchitectureEnforcementTest.java is compiled directly without requiring
+            a standard Maven src/test/java layout.
+        -->
+        <testSourceDirectory>.</testSourceDirectory>
+
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>${compiler.plugin.version}</version>
+                <configuration>
+                    <source>11</source>
+                    <target>11</target>
+                    <encoding>UTF-8</encoding>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>${surefire.version}</version>
+                <configuration>
+                    <!--
+                        Add the compiled class directories of all Apache ZooKeeper modules
+                        to the test classpath so that ArchUnit's ClassFileImporter and
+                        @AnalyzeClasses can discover and analyse org.apache.zookeeper classes
+                        at runtime.
+
+                        Paths are relative to the location of this pom.xml:
+                            outputs/zookeeper/sonnet 4.6/
+                        Three levels up ("../../../") reaches the workspace root, from
+                        which the zookeeper/ source tree is located.
+                    -->
+                    <additionalClasspathElements>
+                        <!-- Core server and shared data model (jute) -->
+                        <additionalClasspathElement>
+                            ../../../zookeeper/zookeeper-server/target/classes
+                        </additionalClasspathElement>
+                        <additionalClasspathElement>
+                            ../../../zookeeper/zookeeper-jute/target/classes
+                        </additionalClasspathElement>
+                        <!-- Metrics provider: Prometheus integration -->
+                        <additionalClasspathElement>
+                            ../../../zookeeper/zookeeper-metrics-providers/zookeeper-prometheus-metrics/target/classes
+                        </additionalClasspathElement>
+                        <!-- Recipes: leader election, distributed lock, distributed queue -->
+                        <additionalClasspathElement>
+                            ../../../zookeeper/zookeeper-recipes/zookeeper-recipes-election/target/classes
+                        </additionalClasspathElement>
+                        <additionalClasspathElement>
+                            ../../../zookeeper/zookeeper-recipes/zookeeper-recipes-lock/target/classes
+                        </additionalClasspathElement>
+                        <additionalClasspathElement>
+                            ../../../zookeeper/zookeeper-recipes/zookeeper-recipes-queue/target/classes
+                        </additionalClasspathElement>
+                    </additionalClasspathElements>
+                    <includes>
+                        <include>**/*Test.java</include>
+                    </includes>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
