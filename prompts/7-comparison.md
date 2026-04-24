@@ -50,7 +50,7 @@ Both models have achieved a passing build state (0 architectural violations), bu
 
 Produce a complete Markdown document suitable for saving as:
 
-`outputs/[Project Name]/comparison.md`
+`outputs\[Project Name]\comparison.md`
 
 Begin the response with the first line of the Markdown document. Do not include any preamble, greeting, or closing conversational text outside the document itself.
 
