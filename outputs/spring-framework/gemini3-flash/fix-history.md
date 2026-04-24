@@ -30,3 +30,11 @@ review3-by-opus-4-7
 Review #3
 Findings: Identified 143 remaining violations primarily caused by mis-mapped JMX and ORM support packages (F-1, F-3), overly restrictive access to MiscServices (F-2), and lack of a directional DAG for MiscServices (F-5).
 Fix: Relocated jmx to Context layer and ORM support (OSIV bridge) to Web layer. Relaxed layeredArchitecture() access for Web/DataAccess to reach caching/scheduling infrastructure. Replaced leaf isolation with a directional DAG (jms -> messaging -> scheduling). Removed redundant DataAccess-to-Web rule and unused imports.
+
+6. Sixth test generation after review 4th round of feedback
+
+review4-by-opus-4-7
+
+Review #4
+Findings: Identified opportunities for precision tightening (F-1, F-2), DAG gap in messaging (F-3), and structural robustness (F-9, F-10). Noted rule redundancies (F-4) and missing symmetric isolation in DataAccess (F-6).
+Fix: Applied comprehensive patch: narrowed ignoreDependency clauses to specific resource handlers, added required_modules_are_on_classpath sanity check, refined messaging isolation for STOMP heartbeats, and added dao_abstraction_is_pure / orm_does_not_know_about_jdbc_core symmetric rules. Switched to regex-based Location matching for platform-agnostic imports.
