@@ -5,99 +5,104 @@
  * derived from the official ZooKeeper architecture documentation
  * (Copyright © 2008-2013 The Apache Software Foundation).
  *
- * <h2>Documented Layer Hierarchy (bottom to top)</h2>
+ * <p>The PDF documentation actually mandates four concrete constraints:
  * <ol>
- *   <li><b>Infrastructure</b> – Foundational, cross-cutting utilities with no dependency on
- *       any production layer. Provides common helpers, compatibility shims, and general-purpose
- *       utilities consumed by every other layer.
+ *   <li><b>C1</b> – Clients talk to servers only over the TCP wire protocol (§1.1, §1.7).</li>
+ *   <li><b>C2</b> – The request processor, replicated database, and atomic-broadcast pipeline
+ *       are internal to the server and are not part of the client contract (§1.7).</li>
+ *   <li><b>C3</b> – Recipes are higher-order primitives built on the simple client API,
+ *       never on server internals (§1.8).</li>
+ *   <li><b>C4</b> – The simple API (create / delete / exists / getData / setData /
+ *       getChildren / sync) is a narrow, stable public surface (§1.6).</li>
+ * </ol>
+ *
+ * <p>Everything else (layered stack, monitoring / audit separation) is inference from the
+ * implementation structure and is marked as such in the {@code .because()} clauses.
+ *
+ * <h2>Inferred Layer Hierarchy (bottom to top)</h2>
+ * <ol>
+ *   <li><b>Infrastructure</b> – Foundational, cross-cutting utilities.
  *       Packages: {@code org.apache.zookeeper.common},
  *                 {@code org.apache.zookeeper.util},
  *                 {@code org.apache.zookeeper.compat},
  *                 {@code org.apache.zookeeper.compatibility}</li>
- *
- *   <li><b>Monitoring</b> – Observability and management support for the running service.
- *       Covers JMX bean registration, pluggable metrics collection (used by Prometheus and
- *       others), and audit-log emission. Depends only on Infrastructure.
+ *   <li><b>Monitoring</b> – Observability and management support (JMX, pluggable metrics,
+ *       audit logging). Monitoring may observe Server-internal request objects (audit).
  *       Packages: {@code org.apache.zookeeper.jmx},
  *                 {@code org.apache.zookeeper.metrics},
  *                 {@code org.apache.zookeeper.audit}</li>
- *
- *   <li><b>Server</b> – Core distributed coordination server as described in the
- *       "ZooKeeper Components" diagram: the replicated in-memory data tree, transaction log,
- *       snapshots, request processor pipeline, and the atomic-messaging / leader-election
- *       (quorum) protocol. Depends on Infrastructure and Monitoring.
+ *   <li><b>Server</b> – Core coordination server: replicated in-memory data tree,
+ *       transaction log, request processor, and atomic-broadcast / leader-election (§1.7).
  *       Package: {@code org.apache.zookeeper.server}</li>
- *
- *   <li><b>Client</b> – Client-side connectivity and retry logic that opens exactly one TCP
- *       connection to a ZooKeeper server to submit requests and receive watch events (as
- *       described in section 1.7 of the documentation). Depends on Infrastructure.
- *       Packages: {@code org.apache.zookeeper.client},
+ *   <li><b>Client</b> – Public client API (C4) and client-side connectivity.
+ *       The root {@code org.apache.zookeeper} package contains the stable surface
+ *       described in §1.6 (ZooKeeper, Watcher, KeeperException, AsyncCallback, ZooDefs).
+ *       Packages: {@code org.apache.zookeeper} (root),
+ *                 {@code org.apache.zookeeper.client},
  *                 {@code org.apache.zookeeper.retry}</li>
- *
- *   <li><b>API</b> – Public-facing interfaces: the administrative REST/command channel
- *       ({@code admin}) and the interactive command-line interface ({@code cli}). Both expose
- *       operations over the simple API primitives (create, delete, exists, getData, setData,
- *       getChildren, sync) defined in section 1.6. Depends on Client, Server, Monitoring, and
- *       Infrastructure.
- *       Packages: {@code org.apache.zookeeper.admin},
- *                 {@code org.apache.zookeeper.cli}</li>
- *
- *   <li><b>Recipes</b> – Higher-level distributed coordination primitives (leader election,
- *       distributed lock, distributed queue) built exclusively on top of the ZooKeeper client
- *       API, as described in section 1.8 ("Uses"). Must not reach into Server internals.
+ *   <li><b>Admin</b> – Server-side administrative HTTP channel (runs inside the ensemble
+ *       node, accesses {@code ZooKeeperServer} directly).
+ *       Package: {@code org.apache.zookeeper.admin}</li>
+ *   <li><b>Cli</b> – Client-side interactive command-line tool (opens a TCP connection
+ *       like any other client; must not link-depend on server internals).
+ *       Package: {@code org.apache.zookeeper.cli}</li>
+ *   <li><b>Recipes</b> – Higher-level coordination primitives (leader election,
+ *       distributed lock, queue) built exclusively on the public client API (§1.8).
  *       Package: {@code org.apache.zookeeper.recipes}</li>
  * </ol>
  *
  * <h2>Excluded Packages and Rationale</h2>
  * <ul>
  *   <li>{@code org.apache.zookeeper.graph} – Standalone log-graph visualisation tool.
- *       It is a build-only developer utility with its own dependency tree (Swing, etc.) and
- *       does not participate in the production service architecture. Including it would
- *       introduce false positive layer violations from GUI-specific imports.</li>
- *
+ *       A build-only developer utility with its own dependency tree (Swing, etc.) that
+ *       does not participate in the production service architecture. Excluded via
+ *       {@link ExcludeStandaloneTools} to prevent false-positive layer violations.</li>
  *   <li>{@code org.apache.zookeeper.inspector} – Standalone GUI inspector used for
- *       development-time debugging and exploration of a live ZooKeeper ensemble. Like
- *       {@code graph}, it is a build-only utility that is never deployed as part of the
- *       server or client runtime.</li>
- *
- *   <li>{@code org.apache.zookeeper.test} – Test infrastructure, stubs, and mock
- *       implementations. Test-support classes are not production artifacts and would create
- *       spurious dependency violations if included in layer definitions (e.g., test helpers
- *       that intentionally reach across layers for setup purposes).</li>
+ *       development-time debugging. Like {@code graph}, it is a build-only utility
+ *       that is never deployed as part of the server or client runtime. Excluded via
+ *       {@link ExcludeStandaloneTools}.</li>
+ *   <li>Test classes – Excluded via {@code ImportOption.DoNotIncludeTests}, which
+ *       filters classes compiled into the Maven {@code test-classes} output directory.</li>
  * </ul>
  */
 
-import com.tngtech.archunit.core.domain.JavaClasses;
-import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
+import com.tngtech.archunit.core.importer.Location;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAPackage;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAnyPackage;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 
 @AnalyzeClasses(
         packages = "org.apache.zookeeper",
-        importOptions = {ImportOption.DoNotIncludeTests.class}
+        importOptions = {
+                ImportOption.DoNotIncludeTests.class,
+                ArchitectureEnforcementTest.ExcludeStandaloneTools.class
+        }
 )
 public class ArchitectureEnforcementTest {
 
     /**
-     * ClassFileImporter for the project root package.
-     * Used when running rules programmatically outside the JUnit 5 runner.
-     * The JUnit 5 runner uses the {@code @AnalyzeClasses} annotation above instead.
+     * Excludes the {@code graph} and {@code inspector} standalone tools from the
+     * analysis scope, matching the intent stated in the Javadoc header above.
      */
-    static final JavaClasses ZOOKEEPER_CLASSES = new ClassFileImporter()
-            .withImportOption(new ImportOption.DoNotIncludeTests())
-            .importPackages("org.apache.zookeeper");
+    public static final class ExcludeStandaloneTools implements ImportOption {
+        @Override
+        public boolean includes(Location location) {
+            return !location.contains("/org/apache/zookeeper/graph/")
+                && !location.contains("/org/apache/zookeeper/inspector/");
+        }
+    }
 
     // =========================================================================
     // LAYERED ARCHITECTURE RULES
-    // Enforces that lower layers never depend on higher layers, as described
-    // in the ZooKeeper Components architecture diagram.
+    // Enforces that lower layers never depend on higher layers as inferred from
+    // the ZooKeeper Components diagram and the client/server separation in §1.7.
     // =========================================================================
 
     @ArchTest
@@ -124,82 +129,75 @@ public class ArchitectureEnforcementTest {
 
                     .layer("Client")
                             .definedBy(
+                                    "org.apache.zookeeper",        // root-only: ZooKeeper, Watcher, ...
                                     "org.apache.zookeeper.client..",
                                     "org.apache.zookeeper.retry..")
 
-                    .layer("API")
-                            .definedBy(
-                                    "org.apache.zookeeper.admin..",
-                                    "org.apache.zookeeper.cli..")
+                    .layer("Admin").definedBy("org.apache.zookeeper.admin..")
+                    .layer("Cli").definedBy("org.apache.zookeeper.cli..")
+                    .layer("Recipes").definedBy("org.apache.zookeeper.recipes..")
 
-                    .layer("Recipes")
-                            .definedBy("org.apache.zookeeper.recipes..")
-
-                    // Infrastructure is the absolute foundation; nothing it contains
-                    // should depend on any higher layer.
+                    // Infrastructure is the absolute foundation.
                     .whereLayer("Infrastructure").mayOnlyAccessLayers("Infrastructure")
 
-                    // Monitoring observes the service but must not drive Server,
-                    // Client, API, or Recipe logic.
-                    .whereLayer("Monitoring").mayOnlyAccessLayers("Infrastructure", "Monitoring")
+                    // Monitoring may observe Server-internal objects (audit reads Request).
+                    .whereLayer("Monitoring").mayOnlyAccessLayers(
+                            "Infrastructure", "Monitoring", "Server")
 
-                    // Server implements the coordination protocol and may use
-                    // Infrastructure and Monitoring, but must not depend on the Client
-                    // library, the API layer, or Recipes.
-                    .whereLayer("Server").mayOnlyAccessLayers("Infrastructure", "Monitoring", "Server")
+                    // Server emits metrics/JMX/audit events (§1.7 internals).
+                    .whereLayer("Server").mayOnlyAccessLayers(
+                            "Infrastructure", "Monitoring", "Server")
 
-                    // Client connects to a single server over TCP (section 1.7) and
-                    // must not reach into Server internals, the API layer, or Recipes.
-                    .whereLayer("Client").mayOnlyAccessLayers("Infrastructure", "Client")
+                    // Client may emit metrics via the pluggable metrics API.
+                    .whereLayer("Client").mayOnlyAccessLayers(
+                            "Infrastructure", "Monitoring", "Client")
 
-                    // API (admin + cli) is the topmost service boundary before Recipes
-                    // and must not depend on Recipes, which are consumer-side primitives.
-                    .whereLayer("API").mayOnlyAccessLayers(
-                            "Infrastructure", "Monitoring", "Server", "Client", "API")
+                    // Admin is server-side: accesses Server internals but not Client.
+                    .whereLayer("Admin").mayOnlyAccessLayers(
+                            "Infrastructure", "Monitoring", "Server", "Admin")
 
-                    // Recipes are higher-level coordination primitives built on the
-                    // ZooKeeper Client API (section 1.8); they must not reach into
-                    // Server internals directly.
+                    // CLI is a client tool: connects over TCP, no server-internal access.
+                    .whereLayer("Cli").mayOnlyAccessLayers(
+                            "Infrastructure", "Monitoring", "Client", "Cli")
+
+                    // Recipes are pure clients; they may emit metrics for latency tracking.
                     .whereLayer("Recipes").mayOnlyAccessLayers(
-                            "Infrastructure", "Client", "Recipes")
+                            "Infrastructure", "Monitoring", "Client", "Recipes")
+
+                    // Close the back door: only Admin, Monitoring, and Server itself
+                    // may reach into Server internals.
+                    .whereLayer("Server").mayOnlyBeAccessedByLayers(
+                            "Admin", "Monitoring", "Server")
 
                     .because(
-                            "The ZooKeeper Components design (section 1.7) prescribes a strict "
-                            + "bottom-up dependency flow: Infrastructure → Monitoring → Server / "
-                            + "Client → API → Recipes. Lower layers must remain stable and "
-                            + "independent of higher-level concerns to support the high-performance, "
-                            + "replicated coordination service described in the documentation.");
+                            "Inferred from §1.1 and §1.7: clients connect to ZooKeeper servers "
+                            + "only over the TCP wire protocol. Admin HTTP endpoints run inside "
+                            + "the server process; CLI is a client-side tool; recipes are "
+                            + "higher-order primitives built on the public API (§1.8). "
+                            + "Observability (metrics / jmx / audit) is cross-cutting and may "
+                            + "be accessed from any tier.");
 
     // =========================================================================
-    // FINE-GRAINED INTRA-LAYER RULES
-    // Module-to-module constraints within layers that prevent circular
-    // dependencies and enforce parallel-layer isolation.
+    // FINE-GRAINED RULES — Documentation-specific constraints (C1, C3, C4)
     // =========================================================================
 
-    /** CLI must not depend on the Admin module (parallel packages within the API layer). */
+    /**
+     * C4: The public API surface (root package) must not transitively expose server
+     * internals to callers.
+     */
     @ArchTest
-    static final ArchRule cli_must_not_depend_on_admin =
+    static final ArchRule public_api_must_not_depend_on_server =
             noClasses()
-                    .that().resideInAPackage("org.apache.zookeeper.cli..")
-                    .should().dependOnClassesThat(resideInAPackage("org.apache.zookeeper.admin.."))
+                    .that().resideInAPackage("org.apache.zookeeper")
+                    .should().dependOnClassesThat(resideInAPackage("org.apache.zookeeper.server.."))
                     .because(
-                            "The CLI and Admin modules are parallel sub-components of the API layer. "
-                            + "CLI is an interactive command-line front-end while Admin exposes a "
-                            + "server-side administrative HTTP channel; coupling them would create a "
-                            + "circular dependency path through the API layer.");
+                            "§1.6 describes the simple public API (create, delete, exists, getData, "
+                            + "setData, getChildren, sync); its implementing classes (ZooKeeper, "
+                            + "Watcher, KeeperException, AsyncCallback, ZooDefs) form the stable "
+                            + "contract applications compile against and must not transitively drag "
+                            + "in server internals (§1.1, §1.7).");
 
-    /** Admin must not depend on the CLI module (parallel packages within the API layer). */
-    @ArchTest
-    static final ArchRule admin_must_not_depend_on_cli =
-            noClasses()
-                    .that().resideInAPackage("org.apache.zookeeper.admin..")
-                    .should().dependOnClassesThat(resideInAPackage("org.apache.zookeeper.cli.."))
-                    .because(
-                            "Admin and CLI are parallel sub-components of the API layer. "
-                            + "Admin must not import CLI classes to avoid a circular dependency "
-                            + "that would prevent either module from being deployed independently.");
-
-    /** Client layer must not import Server internals. */
+    /** C1/C2: The client library must not compile-depend on server internals. */
     @ArchTest
     static final ArchRule client_must_not_depend_on_server =
             noClasses()
@@ -208,99 +206,51 @@ public class ArchitectureEnforcementTest {
                             "org.apache.zookeeper.retry..")
                     .should().dependOnClassesThat(resideInAPackage("org.apache.zookeeper.server.."))
                     .because(
-                            "The Client layer represents the client-side TCP connection to a single "
-                            + "ZooKeeper server (section 1.7). Importing Server internals would "
-                            + "conflate client and server boundaries, preventing the client library "
-                            + "from being distributed independently of the server.");
+                            "Per §1.1 and §1.7, clients connect to ZooKeeper servers only over the "
+                            + "TCP wire protocol. The Java client library must not compile-depend on "
+                            + "server internals so the two artefacts can evolve and ship "
+                            + "independently.");
 
-    /** Recipes must not reach into Server internals directly. */
+    /** C1: CLI is a client-side tool and must not link-depend on server internals. */
+    @ArchTest
+    static final ArchRule cli_must_not_depend_on_server =
+            noClasses()
+                    .that().resideInAPackage("org.apache.zookeeper.cli..")
+                    .should().dependOnClassesThat(resideInAPackage("org.apache.zookeeper.server.."))
+                    .because(
+                            "Per §1.1 and §1.6, the CLI opens a TCP connection and submits API calls "
+                            + "like any other client; a compile edge into the server would defeat the "
+                            + "wire-protocol separation described in §1.7.");
+
+    /** C3: Recipes must not reach into server internals. */
     @ArchTest
     static final ArchRule recipes_must_not_depend_on_server =
             noClasses()
                     .that().resideInAPackage("org.apache.zookeeper.recipes..")
                     .should().dependOnClassesThat(resideInAPackage("org.apache.zookeeper.server.."))
                     .because(
-                            "Recipes (leader election, distributed lock, queue) are higher-level "
-                            + "coordination primitives built exclusively on the ZooKeeper Client API "
-                            + "(section 1.8). Direct access to Server internals would break the "
-                            + "abstraction and create an undocumented coupling to server-side "
-                            + "implementation details.");
+                            "§1.8 describes recipes as higher-order operations built on top of the "
+                            + "simple API defined in §1.6; the rules therefore infer that recipes may "
+                            + "only compile against the public client API, never against server "
+                            + "internals.");
 
-    /** Recipes must not depend on the Admin or CLI API modules. */
+    /** C3: Recipes may only depend on the documented public client API and shared utilities. */
     @ArchTest
-    static final ArchRule recipes_must_not_depend_on_api =
-            noClasses()
+    static final ArchRule recipes_only_use_public_client_api =
+            classes()
                     .that().resideInAPackage("org.apache.zookeeper.recipes..")
-                    .should().dependOnClassesThat(resideInAnyPackage(
-                            "org.apache.zookeeper.admin..",
-                            "org.apache.zookeeper.cli.."))
+                    .should().onlyDependOnClassesThat(
+                            resideInAnyPackage(
+                                    "java..", "javax..", "org.slf4j..",
+                                    "org.apache.zookeeper",           // public API root (§1.6)
+                                    "org.apache.zookeeper.client..",
+                                    "org.apache.zookeeper.common..",
+                                    "org.apache.zookeeper.util..",
+                                    "org.apache.zookeeper.data..",    // Stat, ACL, Id
+                                    "org.apache.zookeeper.recipes.."))
                     .because(
-                            "Recipes are consumer-side coordination primitives that must only rely on "
-                            + "the stable Client API. Depending on Admin or CLI modules would invert "
-                            + "the documented layer hierarchy and introduce deployment-time coupling "
-                            + "to administrative tooling.");
-
-    /** Metrics module must not depend on the JMX module (parallel Monitoring sub-components). */
-    @ArchTest
-    static final ArchRule metrics_must_not_depend_on_jmx =
-            noClasses()
-                    .that().resideInAPackage("org.apache.zookeeper.metrics..")
-                    .should().dependOnClassesThat(resideInAPackage("org.apache.zookeeper.jmx.."))
-                    .because(
-                            "Metrics and JMX are parallel monitoring sub-components. The pluggable "
-                            + "metrics API must remain independent of the JMX management layer so "
-                            + "that alternative metrics providers (e.g., Prometheus) can be "
-                            + "substituted without pulling in JMX dependencies.");
-
-    /** JMX module must not depend on the Metrics module (parallel Monitoring sub-components). */
-    @ArchTest
-    static final ArchRule jmx_must_not_depend_on_metrics =
-            noClasses()
-                    .that().resideInAPackage("org.apache.zookeeper.jmx..")
-                    .should().dependOnClassesThat(resideInAPackage("org.apache.zookeeper.metrics.."))
-                    .because(
-                            "JMX and Metrics are parallel monitoring sub-components. Allowing JMX to "
-                            + "depend on the Metrics API would create a circular dependency within "
-                            + "the Monitoring layer and couple the JMX management interface to a "
-                            + "specific metrics implementation.");
-
-    /** Audit module must not depend on JMX or Metrics (parallel Monitoring sub-components). */
-    @ArchTest
-    static final ArchRule audit_must_not_depend_on_jmx_or_metrics =
-            noClasses()
-                    .that().resideInAPackage("org.apache.zookeeper.audit..")
-                    .should().dependOnClassesThat(resideInAnyPackage(
-                            "org.apache.zookeeper.jmx..",
-                            "org.apache.zookeeper.metrics.."))
-                    .because(
-                            "Audit logging is a parallel concern within the Monitoring layer alongside "
-                            + "JMX and Metrics. Coupling audit to either of those sub-components "
-                            + "would make audit log emission contingent on unrelated observability "
-                            + "infrastructure and introduce intra-layer circular dependencies.");
-
-    /** Infrastructure packages must not depend on any higher layer. */
-    @ArchTest
-    static final ArchRule infrastructure_must_not_depend_on_higher_layers =
-            noClasses()
-                    .that().resideInAnyPackage(
-                            "org.apache.zookeeper.common..",
-                            "org.apache.zookeeper.util..",
-                            "org.apache.zookeeper.compat..",
-                            "org.apache.zookeeper.compatibility..")
-                    .should().dependOnClassesThat(resideInAnyPackage(
-                            "org.apache.zookeeper.jmx..",
-                            "org.apache.zookeeper.metrics..",
-                            "org.apache.zookeeper.audit..",
-                            "org.apache.zookeeper.server..",
-                            "org.apache.zookeeper.client..",
-                            "org.apache.zookeeper.retry..",
-                            "org.apache.zookeeper.admin..",
-                            "org.apache.zookeeper.cli..",
-                            "org.apache.zookeeper.recipes.."))
-                    .because(
-                            "Infrastructure packages (common, util, compat, compatibility) form the "
-                            + "absolute foundation of ZooKeeper and are consumed by every other layer. "
-                            + "Any upward dependency would create a circular reference that prevents "
-                            + "the foundational utilities from being built and tested in isolation, "
-                            + "contradicting ZooKeeper's design goal of a stable, reusable base.");
+                            "Per §1.8, recipes are higher-order coordination primitives built "
+                            + "exclusively on the simple client API (§1.6); they must not depend on "
+                            + "server internals, Admin or CLI tooling, or implementation-only "
+                            + "utilities.");
 }
