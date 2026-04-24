@@ -57,7 +57,7 @@ The process utilizes standardized prompt templates located in the `prompts/` dir
 - **2-Correction**: `2-fix-compilation.md` (Build Errors)
 - **3-Review**: `3-review-java.md` / `3-review-go.md` (Adversarial Audit)
 - **4-Fix Review**: `4-fix-review.md` (Apply Review Patches)
-- **5-Analysis**: `5-analyze-java.md` (Violation Triage)
+- **5-Analysis**: `5-analyze-java.md` / `5-analyze-go.md` (Violation Triage)
 - **6-Final**: `6-final-thoughts.md` (Fidelity Calibration)
 - **7-Comparison**: `7-comparison.md` (In-Depth Architectural Comparison)
 
@@ -70,7 +70,7 @@ All prompt templates are standardized to use variable-based paths. To use them:
 ### Iterative Triage Workflow
 For violation analysis (Stage 6), use the following process:
 1. Run the enforcement tests and capture the test report.
-2. Use the `5-analyze-java.md` prompt to cluster violations and identify mapping errors.
+2. Use the `5-analyze-java.md` (or `5-analyze-go.md`) prompt to cluster violations and identify mapping errors.
 3. Apply the recommended "Single-Shot Patch" to the test class.
 4. Repeat until the analysis report indicates `Results: 0 mapping error`.
 
