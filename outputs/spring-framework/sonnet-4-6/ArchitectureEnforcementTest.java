@@ -2,12 +2,21 @@
  * ArchitectureEnforcementTest
  *
  * Enforces the documented Spring Framework layer hierarchy using ArchUnit rules.
- * Updated after Review #3 (reviewer: opus-4-7) to resolve all new findings.
+ * Updated after Review #4 (reviewer: opus-4-7) to resolve all new findings.
  *
- * NOTE: the current layered model requires multiple ignoreDependency() carve-outs for
- * documented Spring bridge APIs (JmsMessaging, OpenEntityManagerInView, EnableMBeanExport,
- * ScriptTemplateView, Context AOP consumers, JNDI proxies, Messaging AOP proxies). Future
- * maintainers should expect additional carve-outs as Spring adds new bridge modules. (F39)
+ * NOTE: the current layered model requires 8 ignoreDependency() carve-outs for documented
+ * Spring bridge APIs. Future maintainers should expect additional carve-outs as Spring adds
+ * new bridge modules. (F39)
+ *
+ * ignoreDependency carve-outs (documented Spring bridges):
+ *   - context.{annotation,event,config} -> aop..           (F29/F36: @EnableAspectJAutoProxy, @EventListener)
+ *   - orm.jpa.support -> web..                             (F16: Open-EntityManager-in-View)
+ *   - jndi -> aop..                                        (F33: JndiObjectFactoryBean proxies)
+ *   - context.{annotation,config} -> jmx..                 (F37: @EnableMBeanExport)
+ *   - web.{servlet,reactive}.view.script -> scripting..    (F38: ScriptTemplateView)
+ *   - validation -> aop..                                  (F42: ValidationAnnotationUtils proxy unwrap)
+ *   - cache -> aop..                                       (F43: @EnableCaching advice wiring)
+ *   - cache.transaction -> transaction..                   (F44: TransactionAwareCacheDecorator)
  *
  * Layer Hierarchy (bottom to top):
  *   1. CoreContainer  - Foundation IoC/DI layer.
@@ -17,35 +26,30 @@
  *                       cache (cross-cutting caching SPI; F30),
  *                       scheduling root + concurrent/config/support sub-packages
  *                         (quartz removed to DataAccess per F31),
- *                       validation root + method/support sub-packages
- *                         (annotation/beanvalidation moved to AopConsumers per F32)
+ *                       validation root + annotation/method/support sub-packages
+ *                         (validation.annotation restored from AopConsumers per F42;
+ *                          validation.beanvalidation remains in AopConsumers)
  *   2. AOP            - Aspect-Oriented Programming. Packages: aop
  *   3. Messaging      - Messaging abstraction. Above AOP to allow RSocket service proxies (F34).
+ *                       Mutual access with AopConsumers (F45): Messaging wires
+ *                       OptionalValidatorFactoryBean; AopConsumers annotation config uses messaging.
  *                       Packages: messaging
- *   4. AopConsumers   - AOP-backed annotation subpackages. Reachable by all peer layers (F35).
- *                       Packages: scheduling.annotation, validation.annotation (F32),
- *                                 validation.beanvalidation
+ *   4. AopConsumers   - SYNTHETIC (not in Spring docs). AOP-backed annotation subpackages (F13).
+ *                       Reachable by Messaging and all peer layers (F35/F45).
+ *                       Packages: scheduling.annotation, validation.beanvalidation
+ *                       (validation.annotation moved back to CoreContainer in F42)
  *   -- Peer layers (all may access CoreContainer, AOP, Messaging, AopConsumers) --
  *   5. DataAccess     - Packages: dao, jdbc, orm, transaction, r2dbc, jms, jca, mail,
  *                                 scheduling.quartz (Quartz uses jdbc+tx; F31)
  *   6. Web            - Packages: web, http
  *   7. Miscellaneous  - Packages: scripting, jmx, ejb, resilience
  *
- * Key corrections applied versus Review #2 state (Review #3):
- *   - aop_must_not_depend_on_aot deleted: AOP legitimately uses AOT for GraalVM hints (F28)
- *   - ignoreDependency glob fixed from "aop" to "aop.." for context.annotation/event/config (F29/F36)
- *   - oxm and cache moved from DataAccess to CoreContainer to resolve 56 web->DA violations (F30)
- *   - DATA_ACCESS_PEER updated: removed oxm/cache, added scheduling.quartz (F30/F31)
- *   - scheduling.quartz moved from CoreContainer to DataAccess (uses jdbc+tx) (F31)
- *   - validation.annotation moved from CoreContainer to AopConsumers (uses aop.framework) (F32)
- *   - ignoreDependency added for jndi..->aop.. (JndiObjectFactoryBean uses ProxyFactory) (F33)
- *   - Messaging.mayOnlyAccessLayers now includes AOP (RSocket service proxies use ProxyFactory) (F34)
- *   - Layer order changed: CoreContainer->AOP->Messaging->AopConsumers->peers (F34)
- *   - Peer layers (DA/Web/Misc) and AopConsumers now include Messaging and AopConsumers (F35)
- *   - ignoreDependency added for context.annotation/config->jmx.. (@EnableMBeanExport) (F37)
- *   - ignoreDependency added for web.script->scripting.. (ScriptTemplateView) (F38)
- *   - R2/R3 because() clauses updated to reflect oxm/cache promotion (F40)
- *   - Regression guard comment added to tx/dao rules (F41)
+ * Key corrections applied versus Review #3 state (Review #4):
+ *   - validation.annotation restored to CoreContainer; ignoreDependency(validation->aop) added (F42)
+ *   - ignoreDependency(cache->aop) added for @EnableCaching AOP-backed advisors (F43)
+ *   - ignoreDependency(cache.transaction->transaction) added for TransactionAwareCacheDecorator (F44)
+ *   - Messaging.mayOnlyAccessLayers updated to include AopConsumers (F45)
+ *   - Javadoc updated to reflect F42-F45 changes (F46)
  *
  * Excluded Packages and Rationale:
  *   - org.springframework.asm       : Repackaged ASM library; not Spring-authored.
@@ -135,7 +139,7 @@ public class ArchitectureEnforcementTest {
         layeredArchitecture()
             .consideringOnlyDependenciesInLayers()
 
-            // CoreContainer: F30 adds oxm+cache; F31 removes quartz; F32 removes validation.annotation
+            // CoreContainer: F30 adds oxm+cache; F31 removes quartz; F42 restores validation.annotation
             .layer("CoreContainer").definedBy(
                 "org.springframework.core..",
                 "org.springframework.beans..",
@@ -157,8 +161,11 @@ public class ArchitectureEnforcementTest {
                 "org.springframework.scheduling.concurrent..",
                 "org.springframework.scheduling.config..",
                 "org.springframework.scheduling.support..",
-                // validation: root + sub-packages except annotation (AopConsumers) and beanvalidation (AopConsumers)
+                // validation: root + all sub-packages except beanvalidation (AopConsumers)
+                // validation.annotation RESTORED from AopConsumers (F42): ValidationAnnotationUtils
+                // is a utility used by DataBinder, Messaging, and WebFlux; cannot live in AopConsumers.
                 "org.springframework.validation",
+                "org.springframework.validation.annotation..",
                 "org.springframework.validation.method..",
                 "org.springframework.validation.support.."
             )
@@ -173,10 +180,10 @@ public class ArchitectureEnforcementTest {
                 "org.springframework.messaging.."
             )
 
-            // AopConsumers: validation.annotation added (F32); reachable by peers (F35)
+            // AopConsumers: validation.annotation removed (F42 reverted F32).
+            // Only truly AOP-extending post-processors remain here.
             .layer("AopConsumers").definedBy(
                 "org.springframework.scheduling.annotation..",
-                "org.springframework.validation.annotation..",  // F32: uses aop.framework.AopProxyUtils
                 "org.springframework.validation.beanvalidation.."
             )
 
@@ -187,14 +194,17 @@ public class ArchitectureEnforcementTest {
 
             .layer("Miscellaneous").definedBy(MISC_PEER)
 
-            // Layer access rules (F34/F35: reordered; peers gain AopConsumers access)
+            // Layer access rules (F34/F35: reordered; peers include AopConsumers)
             .whereLayer("CoreContainer").mayNotAccessAnyLayer()
             .whereLayer("AOP").mayOnlyAccessLayers("CoreContainer")
-            .whereLayer("Messaging").mayOnlyAccessLayers("CoreContainer", "AOP")           // F34
+            // F45: Messaging and AopConsumers have mutual access — by design.
+            //   Messaging->AopConsumers: AbstractMessageBrokerConfiguration wires OptionalValidatorFactoryBean.
+            //   AopConsumers->Messaging: allowed by mayOnlyAccessLayers, no current edge exists.
+            .whereLayer("Messaging").mayOnlyAccessLayers("CoreContainer", "AOP", "AopConsumers")  // F34 + F45
             .whereLayer("AopConsumers").mayOnlyAccessLayers("CoreContainer", "AOP", "Messaging")
-            .whereLayer("DataAccess").mayOnlyAccessLayers("CoreContainer", "AOP", "Messaging", "AopConsumers")  // F35
-            .whereLayer("Web").mayOnlyAccessLayers("CoreContainer", "AOP", "Messaging", "AopConsumers")        // F35
-            .whereLayer("Miscellaneous").mayOnlyAccessLayers("CoreContainer", "AOP", "Messaging", "AopConsumers") // F35
+            .whereLayer("DataAccess").mayOnlyAccessLayers("CoreContainer", "AOP", "Messaging", "AopConsumers")     // F35
+            .whereLayer("Web").mayOnlyAccessLayers("CoreContainer", "AOP", "Messaging", "AopConsumers")           // F35
+            .whereLayer("Miscellaneous").mayOnlyAccessLayers("CoreContainer", "AOP", "Messaging", "AopConsumers")  // F35
 
             // F29/F36: fixed glob aop->aop.. ; broadened source to context.annotation+event+config
             .ignoreDependency(
@@ -234,6 +244,29 @@ public class ArchitectureEnforcementTest {
                     "org.springframework.web.reactive.result.view.script.."
                 ),
                 resideInAPackage("org.springframework.scripting..")
+            )
+
+            // F42: validation.annotation.ValidationAnnotationUtils defensively unwraps AOP proxies
+            //      via AopUtils.isAopProxy / AopProxyUtils.proxiedUserInterfaces.
+            //      validation.annotation lives in CoreContainer; CoreContainer->AOP requires a carve-out.
+            .ignoreDependency(
+                resideInAPackage("org.springframework.validation.."),
+                resideInAPackage("org.springframework.aop..")
+            )
+
+            // F43: @EnableCaching wires AOP-backed cache advisors.
+            //      cache.interceptor is a StaticMethodMatcherPointcut; CacheProxyFactoryBean is an
+            //      AbstractSingletonProxyFactoryBean. Cache advice IS AOP — documented Spring feature.
+            .ignoreDependency(
+                resideInAPackage("org.springframework.cache.."),
+                resideInAPackage("org.springframework.aop..")
+            )
+
+            // F44: TransactionAwareCacheDecorator integrates cache eviction with spring-tx synchronization
+            //      by implementing TransactionSynchronization (cache.transaction -> transaction.support).
+            .ignoreDependency(
+                resideInAPackage("org.springframework.cache.transaction.."),
+                resideInAPackage("org.springframework.transaction..")
             )
 
             .because("Per the Spring Framework architecture diagram, CoreContainer is the foundation, AOP is above it, Messaging is above AOP (RSocket proxies use ProxyFactory), AopConsumers bridge AOP features for annotation-driven SPIs, and DataAccess/Web/Miscellaneous are parallel top-row peer layers. Documented bridge APIs are accommodated via ignoreDependency carve-outs.");
