@@ -48,7 +48,7 @@ Both models have achieved a passing build state (0 architectural violations), bu
 
 ## Output
 
-Produce a complete Markdown document suitable for saving as:
+Produce a complete Markdown document suitable and save it as:
 
 `outputs\[Project Name]\comparison.md`
 
