@@ -242,15 +242,19 @@ public class ArchitectureEnforcementTest {
         .because("JDBC is a peer alternative to ORM/R2DBC/OXM, not a consumer.");
 
     @ArchTest
-    public static final ArchRule orm_only_touches_jdbc_datasource_and_not_r2dbc = noClasses()
+    public static final ArchRule orm_only_integrates_with_jdbc_via_datasource_and_exception_translation = noClasses()
         .that().resideInAPackage("org.springframework.orm..")
         .should().dependOnClassesThat(
             resideInAPackage("org.springframework.jdbc..")
-                .and(not(resideInAPackage("org.springframework.jdbc.datasource.."))))
+                .and(not(resideInAnyPackage(
+                    "org.springframework.jdbc.datasource..",
+                    "org.springframework.jdbc.support.."))))
         .orShould().dependOnClassesThat().resideInAPackage("org.springframework.r2dbc..")
-        .because("ORM frameworks integrate with jdbc.datasource only (ConnectionHolder, "
-               + "DataSourceUtils, LazyConnectionDataSourceProxy); any other jdbc sub-package "
-               + "or r2dbc usage is a layering bug.");
+        .because("ORM integrates with spring-jdbc via two documented bridges only: "
+               + "jdbc.datasource (ConnectionHolder, DataSourceUtils, LazyConnectionDataSourceProxy) "
+               + "for transaction/connection management, and jdbc.support.SQLExceptionTranslator / "
+               + "SQLExceptionSubclassTranslator for mapping SQLException -> DataAccessException. "
+               + "Any other jdbc sub-package usage, or any r2dbc usage, indicates a layering bug.");
 
     @ArchTest
     public static final ArchRule r2dbc_does_not_know_about_siblings = noClasses()

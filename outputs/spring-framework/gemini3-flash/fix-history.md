@@ -54,3 +54,11 @@ review6-by-opus-4-7
 Review #6
 Findings: Identified a logical flaw in the aggregate required_modules_are_on_classpath rule (F-1) which failed to detect single-module drops. Noted that ORM isolation was too broad (F-2), allowing non-datasource JDBC sub-packages.
 Fix: Replaced aggregate sanity check with 15 individual per-module presence rules (@ArchTest spring_*_present) to ensure explicit failure on any dependency drop. Sharpened ORM isolation to an allowlist strictly limited to jdbc.datasource.. (F-2). Added com.tngtech.archunit.base.DescribedPredicate.not import.
+
+9. Ninth test generation after review 7th round of feedback
+
+review7-by-opus-4-7
+
+Review #7
+Findings: Identified a 9-violation regression in orm_only_touches_jdbc_datasource_and_not_r2dbc caused by missing the JDBC exception translation bridge (F-1). ORM dialects (Hibernate/JPA) legitimately depend on jdbc.support.SQLExceptionTranslator to map SQL errors to Spring's DataAccessException hierarchy.
+Fix: Expanded ORM-to-JDBC allowlist to include org.springframework.jdbc.support.. targetting the documented exception-translation path. Updated rule name and .because() to cite both datasource and support as the two permitted integration bridges.
