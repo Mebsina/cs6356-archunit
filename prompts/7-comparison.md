@@ -81,6 +81,7 @@ Evaluate how faithfully each model translated the architectural documentation in
 - Did either model enforce constraints that were implied but not explicitly stated in the documentation (i.e., architectural inference)?
 - How did each model handle documented architectural debt or legitimate exceptions — were `@ArchIgnore` annotations or `.because()` clauses used appropriately and sparingly, or used to suppress genuine violations?
 - Identify any rules present in one model's suite but absent from the other's, and assess whether the omission is a deficiency or a correct scoping decision.
+- **Provide explicit `ArchUnit` code examples for EVERY claim.** Do not leave any bullet point without an example demonstrating how the model implemented its rules. Label them clearly (e.g., "**Example Rule:**" or "**Example:**").
 
 ### 4. Methodological Analysis (Fix History)
 
@@ -111,3 +112,4 @@ Produce a summary table scoring each model across the four analytical dimensions
 2. Support every claim with a specific artifact reference — cite layer names, rule method chains, or iteration steps from the fix history by name.
 3. Do not hedge the final verdict. Name the superior model and state why clearly.
 4. Format using GitHub Flavored Markdown: headers, fenced code blocks for cited source snippets, and tables where appropriate.
+5. Ensure the document is highly scannable and human-readable. Use bullet points for lists, bold text for key concepts and model names, and short paragraphs to avoid dense walls of text.
