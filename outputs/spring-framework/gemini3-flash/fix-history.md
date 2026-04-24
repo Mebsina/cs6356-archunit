@@ -38,3 +38,11 @@ review4-by-opus-4-7
 Review #4
 Findings: Identified opportunities for precision tightening (F-1, F-2), DAG gap in messaging (F-3), and structural robustness (F-9, F-10). Noted rule redundancies (F-4) and missing symmetric isolation in DataAccess (F-6).
 Fix: Applied comprehensive patch: narrowed ignoreDependency clauses to specific resource handlers, added required_modules_are_on_classpath sanity check, refined messaging isolation for STOMP heartbeats, and added dao_abstraction_is_pure / orm_does_not_know_about_jdbc_core symmetric rules. Switched to regex-based Location matching for platform-agnostic imports.
+
+7. Seventh test generation after review 5th round of feedback
+
+review5-by-opus-4-7
+
+Review #5
+Findings: Identified a 7-violation regression in layered_architecture_is_respected caused by an over-narrow ignoreDependency for caching (F-1). The narrowing failed to account for Web configuration DSL classes (ResourceChainRegistration) that reference cache.Cache.
+Fix: Expanded ignoreDependency source packages to include web.servlet.config.. and web.reactive.config.. targetting the HTTP resource-caching configuration surface. Added org.springframework.dao.. to required_modules_are_on_classpath sanity check (F-2).

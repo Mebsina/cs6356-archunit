@@ -34,6 +34,8 @@ import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
  * Documented cross-cutting exceptions (precisely scoped):
  *   - web.servlet.resource.* and web.reactive.resource.* may consume spring-cache
  *     for HTTP resource caching.
+ *   - web.servlet.config.* and web.reactive.config.* (config DSL) may reference 
+ *     spring-cache to configure resource caching registration.
  *   - http.client.reactive.* may consume spring-scheduling for its shared thread
  *     factory in JdkHttpClientResourceFactory.
  *   - orm.hibernate5.support.* and orm.jpa.support.* bridge DataAccess ↔ Web
@@ -67,6 +69,7 @@ public class ArchitectureEnforcementTest {
             "org.springframework.beans..",
             "org.springframework.context..",
             "org.springframework.aop..",
+            "org.springframework.dao..",
             "org.springframework.jdbc..",
             "org.springframework.orm..",
             "org.springframework.r2dbc..",
@@ -126,14 +129,16 @@ public class ArchitectureEnforcementTest {
         .ignoreDependency(
             resideInAnyPackage(
                 "org.springframework.web.servlet.resource..",
-                "org.springframework.web.reactive.resource.."),
+                "org.springframework.web.reactive.resource..",
+                "org.springframework.web.servlet.config..",
+                "org.springframework.web.reactive.config.."),
             resideInAPackage("org.springframework.cache.."))
         .ignoreDependency(
             resideInAPackage("org.springframework.http.client.reactive.."),
             resideInAPackage("org.springframework.scheduling.."))
 
         .because("Strict downward flow with documented, precisely-scoped exceptions: "
-               + "(1) web.*.resource handlers integrate spring-cache for HTTP resource caching; "
+               + "(1) web.*.resource and config DSL integrate spring-cache for HTTP resource caching; "
                + "(2) http.client.reactive reuses spring-scheduling thread factories; "
                + "(3) orm.*.support are classified as Web (Open-Session-In-View bridge).");
 
