@@ -23,7 +23,7 @@ Terminating Iteration - the iteration number at which `Results: 0 mapping error`
 
 ### Final ArchUnit Rules
 
-[PASTE THE RULE FILE AS IT EXISTS AT LOOP TERMINATION — THE ONE THAT PASSES]
+[PASTE THE CONTENT OF outputs\[Project Name]\[Model Name]\ArchTest.java — the final passing version]
 
 ### Full Loop History
 
@@ -37,7 +37,7 @@ Terminating Iteration - the iteration number at which `Results: 0 mapping error`
 outputs\[Project Name]\[Model Name]\6-final\final-thoughts-by-[Reviewer Model Name].md
 ```
 
-`e.g. outputs\zookeeper\gemini3-flash\6-final\final-thoughts-by-opus-4-7.md`
+`e.g. outputs\[Project Name]\[Model Name]\6-final\final-thoughts-by-[Reviewer Model Name].md`
 
 Valid Markdown. No Java code blocks required (the rule file is already final — this document is about its *relationship to documentation*, not its contents).
 

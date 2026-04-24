@@ -15,7 +15,7 @@ Reviewer Model Name - e.g., opus-4-7
 [PASTE THE SAME TOP-LEVEL PACKAGE LIST USED IN PROMPT 1]
 
 ### Generated ArchUnit Rules
-[PASTE THE GENERATED ARCHUNIT CODE HERE]
+[PASTE THE CONTENT OF outputs\[Project Name]\[Model Name]\ArchTest.java]
 
 ---
 
@@ -25,7 +25,7 @@ Reviewer Model Name - e.g., opus-4-7
 outputs\[Project Name]\[Model Name]\3-review\review#-by-[Reviewer Model Name].md
 ```
 
-`e.g. outputs\spring-framework\sonnet-4-6\3-review\review1-by-opus-4-7.md`
+`e.g. outputs\[Project Name]\[Model Name]\3-review\review1-by-[Reviewer Model Name].md`
 
 The file must be valid Markdown. Use the exact heading and template structure defined in the **Output Format** section below. The Recommended Patch code block must be fenced with ` ```java ` so it renders correctly and can be copied directly into the test class.
 

@@ -23,7 +23,7 @@ Iteration Number - 1, 2, 3, … (this loops until mapping-error count is 0)
 
 ### Current ArchUnit Rules
 
-[PASTE THE CURRENT VERSION OF THE GENERATED ARCHUNIT TEST CLASS — i.e., the rule file as it exists at the start of this iteration]
+[PASTE THE CONTENT OF outputs\[Project Name]\[Model Name]\ArchTest.java — the version at the start of this iteration]
 
 ### Surefire Test Report
 
@@ -41,7 +41,7 @@ Iteration Number - 1, 2, 3, … (this loops until mapping-error count is 0)
 outputs\[Project Name]\[Model Name]\5-analyze\analyze[Iteration Number]-by-[Reviewer Model Name].md
 ```
 
-`e.g. outputs\zookeeper\gemini3-flash\5-analyze\analyze-by-opus-4-7.md`
+`e.g. outputs\[Project Name]\[Model Name]\5-analyze\analyze-by-[Reviewer Model Name].md`
 
 The file must be valid Markdown. Use the exact heading and template structure defined in the **Output Format** section below. Java patch snippets must be fenced with ` ```java ` so they render correctly and can be copied directly into the rule file.
 

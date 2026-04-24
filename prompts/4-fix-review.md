@@ -6,16 +6,16 @@ Project Name - e.g., zookeeper
 Model Name - e.g., gemini3-flash, sonnet-4-6
 
 ### Source Code
-[Insert Content of ArchitectureEnforcementTest.java or arch-go.yml]
-Example: `outputs\zookeeper\gemini3-flash\ArchitectureEnforcementTest.java`
+[Insert Content of outputs\[Project Name]\[Model Name]\ArchTest.java or arch-go.yml]
+Example: `outputs\[Project Name]\[Model Name]\ArchTest.java`
 
 ### Review Feedback
-[Insert Content of review#-by-[Reviewer].md]
-Example: `outputs\zookeeper\gemini3-flash\3-review\review1-by-opus-4-7.md`
+[Insert Content of outputs\[Project Name]\[Model Name]\3-review\review#-by-[Reviewer].md]
+Example: `outputs\[Project Name]\[Model Name]\3-review\review1-by-[Reviewer Model Name].md`
 
 ### Output Format
 outputs\[Project Name]\[Model Name]\fix-history.md
-Example: `outputs\zookeeper\gemini3-flash\fix-history.md`
+Example: `outputs\[Project Name]\[Model Name]\fix-history.md`
 
 ## Your Task
 
