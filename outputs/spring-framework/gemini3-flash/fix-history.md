@@ -70,3 +70,5 @@ review8-by-opus-4-7
 Review #8
 Findings: Identified a misleading .because() clause in messaging_does_not_depend_on_other_misc_services (F-1) regarding scheduling. Noted missing sanity checks for leaf modules like mail/scheduling (F-2). Identified latent inconsistency in web_and_dataaccess_are_isolated regarding the OSIV split (F-3) and missing isolation for oxm/jca (F-6).
 Fix: Corrected messaging .because() to reflect deliberate scheduling allowance. Expanded sanity checks with spring_mail_present and spring_scheduling_present. Tightened web_and_dataaccess_are_isolated with OSIV carve-out. Added oxm_is_leaf_of_dataaccess and jca_is_leaf_of_dataaccess for complete DataAccess coverage.
+
+review9-by-opus-4-7 - PASS
