@@ -91,7 +91,7 @@ public class ArchitectureEnforcementTest {
     @ArchTest
     static final ArchRule spring_layered_architecture_is_respected =
         layeredArchitecture()
-            .consideringOnlyDependenciesInAnyLayer()
+            .consideringOnlyDependenciesInLayers()
             .layer("CoreContainer").definedBy(
                 "org.springframework.core..",
                 "org.springframework.beans..",
