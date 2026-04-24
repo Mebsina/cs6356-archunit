@@ -2,6 +2,9 @@
 
 You are an expert engineer resolving compilation errors in architectural rules. Provide the corrected code and a log entry.
 
+Project Name - e.g., zookeeper
+Model Name - e.g., gemini3-flash, sonnet-4-6
+
 ### Source Code
 [Insert Content of ArchitectureEnforcementTest.java or arch-go.yml]
 Example: `outputs\zookeeper\gemini3-flash\ArchitectureEnforcementTest.java`
@@ -11,6 +14,7 @@ Example: `outputs\zookeeper\gemini3-flash\ArchitectureEnforcementTest.java`
 Example: `mvn test`
 
 ### Output Format
+outputs\[Project Name]\[Model Name]\fix-history.md
 Example: `outputs\zookeeper\gemini3-flash\fix-history.md`
 
 ## Your Task

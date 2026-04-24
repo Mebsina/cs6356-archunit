@@ -3,7 +3,7 @@
 You are a Staff Software Engineer with deep expertise in arch-go and Go module structures. Your task is to generate an `arch-go.yml` configuration that enforces the architectural constraints of a Go project based on the documentation and package structure provided below.
 
 Project Name - e.g., my-go-service
-Model Name - e.g., sonnet-4-6
+Model Name - e.g., gemini3-flash, sonnet-4-6
 
 ## Environment Context
 

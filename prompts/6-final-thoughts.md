@@ -6,10 +6,10 @@ Your job in this step is **calibration**, not celebration. A passing test run on
 
 Refusing to claim certainty you don't have is the point of this prompt. If you find yourself writing "yes, 100%", stop and reread the documentation — you are almost certainly glossing over a judgment call.
 
-Project Name — e.g., zookeeper
-Reviewed Model Name — e.g., gemini3-flash
-Reviewer Model Name — e.g., opus-4-7
-Terminating Iteration — the iteration number at which `Results: 0 mapping error` was reached
+Project Name - e.g., zookeeper
+Model Name - e.g., gemini3-flash, sonnet-4-6
+Reviewer Model Name - e.g., opus-4-7
+Terminating Iteration - the iteration number at which `Results: 0 mapping error` was reached
 
 ## Inputs
 
@@ -27,17 +27,17 @@ Terminating Iteration — the iteration number at which `Results: 0 mapping erro
 
 ### Full Loop History
 
-[PASTE THE `Results:` HEADER LINE FROM EVERY analysisN-by-[Reviewer].md SO THE CALIBRATION CAN CITE THE TRAJECTORY]
+[PASTE THE `Results:` HEADER LINE FROM EVERY analyzeN-by-[Reviewer].md SO THE CALIBRATION CAN CITE THE TRAJECTORY]
 
 ---
 
 ## Output File
 
 ```
-outputs\[Project Name]\[Reviewed Model Name]\final-thoughts-by-[Reviewer Model Name].md
+outputs\[Project Name]\[Model Name]\6-final\final-thoughts-by-[Reviewer Model Name].md
 ```
 
-`e.g. outputs\zookeeper\gemini3-flash\final-thoughts-by-opus-4-7.md`
+`e.g. outputs\zookeeper\gemini3-flash\6-final\final-thoughts-by-opus-4-7.md`
 
 Valid Markdown. No Java code blocks required (the rule file is already final — this document is about its *relationship to documentation*, not its contents).
 
@@ -136,7 +136,7 @@ Structure the final-thoughts file exactly as follows.
 ### Header
 
 ```
-# Final Thoughts — [Project Name] ArchUnit Rules
+# Final Thoughts - [Project Name] ArchUnit Rules
 
 Reviewer: [Reviewer Model Name]
 Subject: [path to the final rule file]

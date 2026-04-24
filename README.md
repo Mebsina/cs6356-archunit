@@ -34,17 +34,15 @@ The following libraries are utilized for architectural enforcement based on the 
 | Go | [arch-go](https://github.com/fdaines/arch-go) (fdaines/arch-go) |
 
 ## Enforcement Pipeline
-The workflow consists of several integrated stages:
+The workflow consists of an iterative, 7-stage process designed to move from recovered documentation to high-fidelity architectural constraints:
 
-1.  **Architecture and Structure Collection**: Gathers architectural ground truth (PDFs, Mermaid diagrams, or recovery outputs) and extracts the repository package directory structure.
-2.  **LLM-Based Rule Generation**: Translates the collected documentation and package mappings into ArchUnit test classes.
-3.  **Adversarial Cross-Model Validation**: A secondary, independent model reviews the generated rules against the original documentation to identify missing constraints, overly broad rules, or incorrect package mappings. The review follows a structured four-phase methodology:
-    - **Phase 1: Coverage Audit**: Identify documented constraints with zero enforcement.
-    - **Phase 2: Precision Audit**: Detect vacuous, overly broad, or narrow rules.
-    - **Phase 3: Semantic Correctness**: Verify dependency directions and layer isolation.
-    - **Phase 4: Structural Integrity**: Ensure intra-layer isolation and transitivity gap coverage.
-4.  **Self-Correction Loop (Manual)**: Generated code is manually compiled. If compilation fails, errors are fed back to the generation model along with the target file and `fix-history.md` history for iterative refinement.
-5.  **Baseline and PR Evaluation**: Executes rules against the main branch to establish a baseline and subsequently validates open pull requests to detect new architectural violations.
+1.  **Architecture and Structure Collection**: Gathers architectural ground truth (PDFs, Mermaid diagrams, or recovery outputs) and extracts the repository package directory structure using `package.sh`.
+2.  **Rule Generation (Prompt 1)**: Translates the collected documentation and package mappings into initial enforcement artifacts (e.g., ArchUnit for Java or arch-go for Go).
+3.  **Compilation Fix Loop (Prompt 2)**: Resolves build-time errors in the generated code by feeding compiler output back to the LLM. This loop terminates when the enforcement code compiles successfully.
+4.  **Adversarial Cross-Model Validation (Prompt 3)**: A secondary, independent model performs an adversarial audit of the rules against the documentation to identify coverage gaps, semantic errors, or incorrect mappings.
+5.  **Review Patching (Prompt 4)**: Applies the recommended fixes and patches from the adversarial review to the source code, recording the changes in `fix-history.md`.
+6.  **Violation Triage Loop (Prompt 5)**: Executes the rules against the codebase and triages results into "mapping errors" (incorrect rules) or "real violations" (architectural drift). This loop repeats until mapping errors reach zero.
+7.  **Final-Thoughts Calibration (Prompt 6)**: Performs a final assessment of the rule file's fidelity to the documentation, documenting silences, inferences, and judgment calls to establish a clear confidence level.
 
 ## Evaluation Scope
 The effectiveness of the pipeline is evaluated across six large-scale, real-world repositories from the ArchEval Benchmark:
@@ -52,34 +50,34 @@ The effectiveness of the pipeline is evaluated across six large-scale, real-worl
 - **Go**: HashiCorp Consul, Kubernetes, Istio
 
 ## Usage
-The rule generation and review processes utilize generic templates located in the `prompts/` directory. These templates are designed to be adaptable to any multi-module project by replacing placeholders (e.g., `[Insert Path to Architecture Documentation]`) with project-specific context.
+The process utilizes standardized prompt templates located in the `prompts/` directory.
 
 ### Prompt Templates
-- **Generation**: `generate-java.md` (ArchUnit) / `generate-go.md` (arch-go)
-- **Correction**: `fix-compilation.md` (Iterative Feedback)
-- **Review**: `review-java.md` / `review-go.md` (Adversarial Audit)
+- **1-Generation**: `1-generate-java.md` / `1-generate-go.md`
+- **2-Correction**: `2-fix-compilation.md` (Build Errors)
+- **3-Review**: `3-review-java.md` / `3-review-go.md` (Adversarial Audit)
+- **4-Fix Review**: `4-fix-review.md` (Apply Review Patches)
+- **5-Analysis**: `5-analyze-java.md` (Violation Triage)
+- **6-Final**: `6-final-thoughts.md` (Fidelity Calibration)
 
-### Manual Correction Workflow
-If the generated code fails to compile, use the following iterative process:
-1. Copy the compilation error and the current state of the source code.
-2. Use the `fix-compilation.md` prompt to address all errors in the output in a single pass.
-3. Apply the fix to the existing test file (the AI will provide one updated version resolving all reported issues).
-4. Append the error and fix strategy to `fix-history.md` using the following format:
-   ```
-   Compile #[N]
-   Error: [Brief description of the compiler error]
-   Fix: [Summary of the changes made to resolve it]
-   ```
-5. Repeat until the code compiles successfully.
+### Iterative Triage Workflow
+For violation analysis (Stage 6), use the following process:
+1. Run the enforcement tests and capture the test report.
+2. Use the `5-analyze-java.md` prompt to cluster violations and identify mapping errors.
+3. Apply the recommended "Single-Shot Patch" to the test class.
+4. Repeat until the analysis report indicates `Results: 0 mapping error`.
 
 ## Directory Structure
-- `prompts/`: Contains LLM prompt templates for rule generation and adversarial review.
-- `inputs/`: Extracted package hierarchies for benchmark repositories.
-- `output/`: Standardized output directory for generated artifacts, organized by `output/[Project Name]/[Model Name]/`.
-    - **Java Outputs**: `ArchitectureEnforcementTest.java`, `pom.xml`, `fix-history.md`
-    - **Go Outputs**: `arch-go.yml`, `Makefile`, `fix-history.md`
-    - **Review Outputs**: `feedback#-by-[Reviewer Model Name].md`
+- `prompts/`: Standardized LLM prompt templates.
+- `inputs/`: Project documentation and extracted package hierarchies.
+- `outputs/[Project Name]/[Model Name]/`: Artifacts generated during the pipeline.
+    - `ArchitectureEnforcementTest.java` / `arch-go.yml`: The primary rule files.
+    - `pom.xml` / `Makefile`: Build configurations.
+    - `fix-history.md`: Cumulative log of compilation fixes and review patches.
+    - `3-review/`: Adversarial audit reports (`review#-by-[Reviewer].md`).
+    - `5-analyze/`: Iterative violation triage reports (`analyze#-by-[Reviewer].md`).
+    - `6-final/`: Final fidelity calibration pass (`final-thoughts-by-[Reviewer].md`).
 
 ## Inputs and Outputs
--   **Input**: Architecture representations (PDF/Mermaid), target repository package structures, and generic prompt templates.
--   **Output**: Enforceable test suites, build configurations (Maven/Makefile), comprehensive adversarial validation reports, and iterative compilation logs (`fix-history.md`).
+-   **Input**: Architecture representations, target repository package structures, and standardized prompt templates.
+-   **Output**: Enforceable test suites, build configurations, comprehensive audit reports, and a complete traceability log of the refinement process.

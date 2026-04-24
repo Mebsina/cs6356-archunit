@@ -3,7 +3,7 @@
 You are a Staff Software Engineer with deep expertise in ArchUnit and complex build tool integrations. Your task is to generate ArchUnit test rules that enforce the architectural constraints of a Java project based on the documentation and package structure provided below.
 
 Project Name - e.g., spring-framework
-Model Name - e.g., sonnet-4-6
+Model Name - e.g., gemini3-flash, sonnet-4-6
 
 ## Environment Context
 

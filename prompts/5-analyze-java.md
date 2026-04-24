@@ -6,10 +6,10 @@ The loop terminates when the **mapping-error count reaches zero**. At that point
 
 The "documentation" provided is the ground truth for what counts as a real violation. The rule file is the *encoding* of that documentation; if the rule file disagrees with the documentation, the rule file is wrong (mapping error). If the rule file agrees with the documentation but the codebase still violates it, the codebase is wrong (real violation).
 
-Project Name — e.g., zookeeper
-Reviewed Model Name — e.g., gemini3-flash
-Reviewer Model Name — e.g., opus-4-7
-Iteration Number — 1, 2, 3, … (this loops until mapping-error count is 0)
+Project Name - e.g., zookeeper
+Model Name - e.g., gemini3-flash, sonnet-4-6
+Reviewer Model Name - e.g., opus-4-7
+Iteration Number - 1, 2, 3, … (this loops until mapping-error count is 0)
 
 ## Inputs
 
@@ -38,10 +38,10 @@ Iteration Number — 1, 2, 3, … (this loops until mapping-error count is 0)
 ## Output File
 
 ```
-outputs\[Project Name]\[Reviewed Model Name]\analysis[Iteration Number]-by-[Reviewer Model Name].md
+outputs\[Project Name]\[Model Name]\5-analyze\analyze[Iteration Number]-by-[Reviewer Model Name].md
 ```
 
-`e.g. outputs\zookeeper\gemini3-flash\analysis2-by-opus-4-7.md`
+`e.g. outputs\zookeeper\gemini3-flash\5-analyze\analyze-by-opus-4-7.md`
 
 The file must be valid Markdown. Use the exact heading and template structure defined in the **Output Format** section below. Java patch snippets must be fenced with ` ```java ` so they render correctly and can be copied directly into the rule file.
 
@@ -139,7 +139,7 @@ Structure the analysis file exactly as follows.
 ### Header (mandatory, must appear at the top, exact field names)
 
 ```
-# Violation Analysis #[Iteration Number] — [short title]
+# Violation Analysis #[Iteration Number] - [short title]
 
 Reviewer: [Reviewer Model Name]
 Scope: [per-rule counts] = [total] violations after applying analysis[N-1] recommendations
