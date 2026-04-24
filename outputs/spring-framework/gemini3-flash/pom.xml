@@ -1,0 +1,72 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.springframework.architecture</groupId>
+    <artifactId>spring-architecture-enforcement</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+
+    <properties>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <archunit.version>1.3.0</archunit.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <version>${archunit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>2.0.7</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <testSourceDirectory>.</testSourceDirectory>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.1.2</version>
+                <configuration>
+                    <additionalClasspathElements>
+                        <!-- Core Container -->
+                        <additionalClasspathElement>../../../spring-core/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-beans/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-context/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-expression/build/classes/java/main</additionalClasspathElement>
+                        
+                        <!-- AOP & Instrumentation -->
+                        <additionalClasspathElement>../../../spring-aop/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-instrument/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-aspects/build/classes/java/main</additionalClasspathElement>
+                        
+                        <!-- Data Access -->
+                        <additionalClasspathElement>../../../spring-jdbc/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-orm/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-tx/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-r2dbc/build/classes/java/main</additionalClasspathElement>
+                        
+                        <!-- Web Layer -->
+                        <additionalClasspathElement>../../../spring-web/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-webmvc/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-webflux/build/classes/java/main</additionalClasspathElement>
+                        
+                        <!-- Integration & Misc -->
+                        <additionalClasspathElement>../../../spring-messaging/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-jms/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-context-support/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-oxm/build/classes/java/main</additionalClasspathElement>
+                    </additionalClasspathElements>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
