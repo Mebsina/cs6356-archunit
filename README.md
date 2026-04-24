@@ -59,6 +59,7 @@ The process utilizes standardized prompt templates located in the `prompts/` dir
 - **4-Fix Review**: `4-fix-review.md` (Apply Review Patches)
 - **5-Analysis**: `5-analyze-java.md` (Violation Triage)
 - **6-Final**: `6-final-thoughts.md` (Fidelity Calibration)
+- **7-Comparison**: `7-comparison.md` (In-Depth Architectural Comparison)
 
 ### Using the Prompts
 All prompt templates are standardized to use variable-based paths. To use them:
