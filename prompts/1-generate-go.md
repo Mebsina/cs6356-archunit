@@ -50,8 +50,8 @@ outputs\[Project Name]\[Model Name]\Makefile
 4. Include a top-level `description` field in the YAML summarising the enforced architecture.
 5. **Structural Integrity**: Organize the YAML with YAML comments (`#`) acting as section separators between rule types (`dependenciesRules`, `contentsRules`, `namingRules`, `functionsRules`).
 6. Output only the complete YAML and Makefile. No explanations, no markdown.
-7. Every rule block must include a `description` field with a human-readable rationale (arch-go surfaces this on violation).
-8. **Detailed Documentation**: Include a comprehensive YAML comment block at the top of `arch-go.yml` that outlines:
+7. Every rule block must include a `description` field with a human-readable rationale (plain text only, no HTML; arch-go surfaces this on violation).
+8. **Detailed Documentation**: Include a comprehensive YAML comment block at the top of `arch-go.yml`. **CRITICAL**: Use plain text only; DO NOT use HTML tags. Use indentation and standard characters (e.g., '-', '*') for lists. Outline:
    - The documented layer hierarchy (from bottom to top).
    - A detailed list of excluded or unconstrained packages with the specific rationale for their exclusion (e.g., generated protobuf code, build-only utilities, test helpers).
 9. Exclude generated packages (e.g., `proto/gen/**`, `mocks/**`) from layer definitions using `shouldNotContainAnyOf` guards or by omitting them from rule scope.

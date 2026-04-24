@@ -47,8 +47,8 @@ outputs\[Project Name]\[Model Name]\pom.xml
 4. Include a `ClassFileImporter` that imports the project's root package.
 5. **Structural Integrity**: Organize the class with logical separators (comments) between different types of rules (e.g., Layered Architecture vs. Fine-grained Rules).
 6. Output only the complete Java code and XML. No explanations, no markdown.
-7. Every rule must have a descriptive `.because()` clause.
-8. **Detailed Documentation**: Include a comprehensive header comment (Javadoc style) at the top of the file that outlines:
+7. Every rule must have a descriptive .because() clause (plain text only, no HTML).
+8. **Detailed Documentation**: Include a comprehensive header comment (Javadoc style) at the top of the file. **CRITICAL**: Use plain text only; DO NOT use HTML tags (e.g., <ul>, <li>, <b>, <p>). Use indentation and standard characters (e.g., '-', '*') for lists. Outline:
     - The documented layer hierarchy (from bottom to top).
     - A detailed list of excluded packages with the specific rationale for their exclusion (e.g., repackaged third-party libraries, build-only utilities).
 9. Exclude implementation details from layer definitions.

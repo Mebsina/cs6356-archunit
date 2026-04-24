@@ -1,65 +1,61 @@
 /**
  * ArchitectureEnforcementTest
  *
- * <p>Enforces the architectural constraints of Apache ZooKeeper derived from
+ * Enforces the architectural constraints of Apache ZooKeeper derived from
  * the official architecture documentation (Copyright © 2008-2013 The Apache
  * Software Foundation). The PDF mandates four concrete constraints:
  *
- * <ol>
- *   <li><b>C1</b> – Clients talk to servers only over the TCP wire protocol (§1.1, §1.7).</li>
- *   <li><b>C2</b> – The request processor, replicated database, and atomic-broadcast
- *       pipeline are internal to the server (§1.7).</li>
- *   <li><b>C3</b> – Recipes are higher-order primitives built on the simple client API,
- *       never on server internals (§1.8).</li>
- *   <li><b>C4</b> – The simple API surface (create / delete / exists / getData / setData /
- *       getChildren / sync) is a narrow, stable public contract (§1.6).</li>
- * </ol>
+ * 1. C1 - Clients talk to servers only over the TCP wire protocol (§1.1, §1.7).
+ * 2. C2 - The request processor, replicated database, and atomic-broadcast
+ *    pipeline are internal to the server (§1.7).
+ * 3. C3 - Recipes are higher-order primitives built on the simple client API,
+ *    never on server internals (§1.8).
+ * 4. C4 - The simple API surface (create / delete / exists / getData / setData /
+ *    getChildren / sync) is a narrow, stable public contract (§1.6).
  *
- * <p>Everything else (layered stack, monitoring / audit separation) is inference from the
+ * Everything else (layered stack, monitoring / audit separation) is inference from the
  * implementation structure and is marked as such in the {@code .because()} clauses.
  *
- * <p>The layer graph is a <b>lattice</b>, not a linear stack:
- * <ul>
- *   <li><b>Infrastructure</b> sits at the base; it consumes only Protocol records and
- *       itself — keeping the utility layer ({@code common}, {@code util}, {@code compat},
- *       {@code compatibility}, {@code version}) free of server/client coupling.</li>
- *   <li><b>Protocol</b> holds the shared wire-format records ({@code proto..}, {@code txn..},
- *       {@code data..}), root-package public-API / cross-tier types (Watcher, KeeperException,
- *       ZooDefs, Op, OpResult, CreateOptions, Quotas, Login, Shell, Version, etc.), and
- *       {@code client.ZKClientConfig} — a shared SASL/configuration carrier used by both the
- *       client and server-side authentication stack despite residing in the {@code client}
- *       sub-package by historical convention.</li>
- *   <li><b>Server</b> and <b>Client</b> are parallel tiers communicating only over the
- *       wire; neither may compile-depend on the other.</li>
- *   <li><b>Monitoring</b> is cross-cutting; it may read Protocol records and Server
- *       internals (audit logs decode request payloads).</li>
- *   <li><b>Admin</b> is dual-natured: its HTTP channel runs inside the Server process,
- *       but {@code ZooKeeperAdmin} extends {@code ZooKeeper} and issues admin commands
- *       over the client wire protocol — so Admin may access both Server and Client.</li>
- *   <li><b>Cli</b> is a client-side shell tool; it may access Client and Admin but not
- *       Server internals. Root-package shell classes (ZooKeeperMain, JLineZNodeCompleter)
- *       are classified here.</li>
- *   <li><b>Recipes</b> are higher-order primitives built on the Client API (§1.8).</li>
- * </ul>
+ * The layer graph is a lattice, not a linear stack:
  *
- * <h2>Excluded Packages and Rationale</h2>
- * <ul>
- *   <li>{@code org.apache.zookeeper.graph} – Standalone log-graph visualisation tool.
- *       A build-only developer utility with its own dependency tree (Swing, etc.) that
- *       does not participate in the production service architecture. Excluded via
- *       {@link ExcludeStandaloneTools} to prevent false-positive layer violations.</li>
- *   <li>{@code org.apache.zookeeper.inspector} – Standalone GUI inspector used for
- *       development-time debugging. Like {@code graph}, it is a build-only utility
- *       never deployed as part of the server or client runtime. Excluded via
- *       {@link ExcludeStandaloneTools}.</li>
- *   <li>Test classes – Excluded via {@code ImportOption.DoNotIncludeTests}, which
- *       filters classes compiled into the Maven {@code test-classes} output directory.</li>
- *   <li>All JARs and archives – Excluded via {@code ImportOption.DoNotIncludeJars} and
- *       {@code ImportOption.DoNotIncludeArchives} to limit scan scope to ZK's own compiled
- *       {@code .class} files and avoid inflating scan time with third-party library classes.
- *       These options are required (not cosmetic): without them the analysis scope expands
- *       to Netty, SLF4J, Jute, and other third-party libraries, reintroducing noise.</li>
- * </ul>
+ * - Infrastructure sits at the base; it consumes only Protocol records and
+ *   itself — keeping the utility layer ({@code common}, {@code util}, {@code compat},
+ *   {@code compatibility}, {@code version}) free of server/client coupling.
+ * - Protocol holds the shared wire-format records ({@code proto..}, {@code txn..},
+ *   {@code data..}), root-package public-API / cross-tier types (Watcher, KeeperException,
+ *   ZooDefs, Op, OpResult, CreateOptions, Quotas, Login, Shell, Version, etc.), and
+ *   {@code client.ZKClientConfig} — a shared SASL/configuration carrier used by both the
+ *   client and server-side authentication stack despite residing in the {@code client}
+ *   sub-package by historical convention.
+ * - Server and Client are parallel tiers communicating only over the
+ *   wire; neither may compile-depend on the other.
+ * - Monitoring is cross-cutting; it may read Protocol records and Server
+ *   internals (audit logs decode request payloads).
+ * - Admin is dual-natured: its HTTP channel runs inside the Server process,
+ *   but {@code ZooKeeperAdmin} extends {@code ZooKeeper} and issues admin commands
+ *   over the client wire protocol — so Admin may access both Server and Client.
+ * - Cli is a client-side shell tool; it may access Client and Admin but not
+ *   Server internals. Root-package shell classes (ZooKeeperMain, JLineZNodeCompleter)
+ *   are classified here.
+ * - Recipes are higher-order primitives built on the Client API (§1.8).
+ *
+ * EXCLUDED PACKAGES AND RATIONALE
+ *
+ * - {@code org.apache.zookeeper.graph} - Standalone log-graph visualisation tool.
+ *   A build-only developer utility with its own dependency tree (Swing, etc.) that
+ *   does not participate in the production service architecture. Excluded via
+ *   {@link ExcludeStandaloneTools} to prevent false-positive layer violations.
+ * - {@code org.apache.zookeeper.inspector} - Standalone GUI inspector used for
+ *   development-time debugging. Like {@code graph}, it is a build-only utility
+ *   never deployed as part of the server or client runtime. Excluded via
+ *   {@link ExcludeStandaloneTools}.
+ * - Test classes - Excluded via {@code ImportOption.DoNotIncludeTests}, which
+ *   filters classes compiled into the Maven {@code test-classes} output directory.
+ * - All JARs and archives - Excluded via {@code ImportOption.DoNotIncludeJars} and
+ *   {@code ImportOption.DoNotIncludeArchives} to limit scan scope to ZK's own compiled
+ *   {@code .class} files and avoid inflating scan time with third-party library classes.
+ *   These options are required (not cosmetic): without them the analysis scope expands
+ *   to Netty, SLF4J, Jute, and other third-party libraries, reintroducing noise.
  */
 
 import com.tngtech.archunit.base.DescribedPredicate;
@@ -366,9 +362,8 @@ public class ArchitectureEnforcementTest {
 
     /**
      * C3 (§1.8): recipes are higher-order coordination primitives built on the
-     * client API, not on server internals or developer-only tooling.
      *
-     * <p>The layered rule above already forbids Recipes → Server / Admin / Cli.
+     * The layered rule above already forbids Recipes → Server / Admin / Cli.
      * This blacklist is retained so the failure message cites §1.8 directly
      * when a violation occurs — a documentation-readability carve-out. Expressed
      * as a blacklist (not a whitelist) so legitimate third-party dependencies do
