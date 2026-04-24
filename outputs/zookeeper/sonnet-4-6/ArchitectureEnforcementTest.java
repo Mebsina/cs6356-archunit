@@ -170,7 +170,9 @@ public class ArchitectureEnforcementTest {
      * package location is historical, not semantic.
      */
     private static final DescribedPredicate<JavaClass> CLIENT_PROTOCOL_TYPES =
-            name("org.apache.zookeeper.client.ZKClientConfig");
+            DescribedPredicate.describe(
+                    "client.ZKClientConfig (cross-tier SASL config carrier)",
+                    c -> c.getName().equals("org.apache.zookeeper.client.ZKClientConfig"));
 
     /**
      * Root-package shell-tool classes that belong in the Cli layer.
