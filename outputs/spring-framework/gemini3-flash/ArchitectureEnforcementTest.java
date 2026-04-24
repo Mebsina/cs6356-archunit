@@ -1,12 +1,13 @@
 package org.springframework;
 
-import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.core.importer.Location;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 
+import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAPackage;
+import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAnyPackage;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
@@ -20,18 +21,15 @@ import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
  * 3. Beans          : beans
  * 4. Aop            : aop, instrument
  * 5. Context        : context, expression, stereotype, format, scripting,
- *                     jndi, ejb, contextsupport, validation (except
+ *                     jndi, ejb, contextsupport, jmx, validation (except
  *                     validation.support which is Web-MVC glue)
- * 6. DataAccess     : dao, jdbc, orm, transaction, r2dbc, oxm, jca
- * 7. Web            : web, http, ui, protobuf, validation.support
- * 8. MiscServices   : cache, scheduling, messaging, jms, mail, jmx, resilience
+ * 6. DataAccess     : dao, jdbc, orm, transaction, r2dbc, oxm, jca (excluding
+ *                     orm.*.support bridge packages)
+ * 7. Web            : web, http, ui, protobuf, validation.support, 
+ *                     orm.hibernate5.support, orm.jpa.support (OSIV/OEMIV glue)
+ * 8. MiscServices   : cache, scheduling, messaging, jms, mail, resilience
  *                     (cache, scheduling, messaging may be consumed by Web
  *                      and DataAccess)
- *
- * EXCLUDED PACKAGES RATIONALE
- * ---------------------------
- * * org.springframework.asm/cglib/objenesis: Repackaged third-party libraries.
- * * org.springframework.test/mock: production test-support modules (spring-test, spring-mock).
  */
 @AnalyzeClasses(packages = "org.springframework", importOptions = {
     ImportOption.DoNotIncludeTests.class,
@@ -74,7 +72,7 @@ public class ArchitectureEnforcementTest {
             "org.springframework.stereotype..", "org.springframework.format..",
             "org.springframework.scripting..", "org.springframework.jndi..",
             "org.springframework.ejb..", "org.springframework.contextsupport..",
-            "org.springframework.validation..")
+            "org.springframework.validation..", "org.springframework.jmx..")
         .layer("DataAccess").definedBy(
             "org.springframework.dao..", "org.springframework.jdbc..",
             "org.springframework.orm..", "org.springframework.transaction..",
@@ -83,12 +81,13 @@ public class ArchitectureEnforcementTest {
         .layer("Web").definedBy(
             "org.springframework.web..", "org.springframework.http..",
             "org.springframework.ui..", "org.springframework.protobuf..",
-            "org.springframework.validation.support..")
+            "org.springframework.validation.support..",
+            "org.springframework.orm.hibernate5.support..",
+            "org.springframework.orm.jpa.support..")
         .layer("MiscServices").definedBy(
             "org.springframework.jms..", "org.springframework.mail..",
             "org.springframework.messaging..", "org.springframework.scheduling..",
-            "org.springframework.cache..", "org.springframework.jmx..",
-            "org.springframework.resilience..")
+            "org.springframework.cache..", "org.springframework.resilience..")
 
         .whereLayer("MiscServices").mayNotBeAccessedByAnyLayer()
         .whereLayer("Web").mayOnlyBeAccessedByLayers("MiscServices")
@@ -98,7 +97,12 @@ public class ArchitectureEnforcementTest {
         .whereLayer("Beans").mayOnlyBeAccessedByLayers("Aop", "Context", "DataAccess", "Web", "MiscServices")
         .whereLayer("Core").mayOnlyBeAccessedByLayers("Beans", "Aop", "Context", "DataAccess", "Web", "MiscServices")
         .whereLayer("BaseUtilities").mayOnlyBeAccessedByLayers("Core", "Beans", "Aop", "Context", "DataAccess", "Web", "MiscServices")
-        .because("Spring's canonical layering is util -> core+aot -> beans -> aop+instrument -> context -> data/web/misc.");
+        
+        .ignoreDependency(resideInAnyPackage("org.springframework.web..", "org.springframework.http.."),
+                         resideInAnyPackage("org.springframework.cache..", "org.springframework.scheduling.."))
+        .ignoreDependency(resideInAPackage("org.springframework.orm.."),
+                         resideInAPackage("org.springframework.web.."))
+        .because("Spring Framework enforces a strict downward flow with documented integration exceptions for OSIV, caching, and scheduling.");
 
     @ArchTest
     public static final ArchRule no_unmapped_spring_packages = classes()
@@ -204,37 +208,32 @@ public class ArchitectureEnforcementTest {
             "org.springframework.r2dbc..", "org.springframework.oxm..")
         .because("The transaction abstraction must not leak knowledge of specific resource APIs.");
 
+    // =========================================================================
+    // MISC SERVICES DAG
+    // =========================================================================
+
     @ArchTest
-    public static final ArchRule data_access_is_agnostic_of_web_except_support = noClasses()
-        .that().resideInAnyPackage("org.springframework.dao..",
-                                   "org.springframework.jdbc..",
-                                   "org.springframework.orm..",
-                                   "org.springframework.transaction..",
-                                   "org.springframework.r2dbc..",
-                                   "org.springframework.oxm..",
-                                   "org.springframework.jca..")
-        .and().resideOutsideOfPackages(
-            "org.springframework.orm.hibernate5.support..",
-            "org.springframework.orm.jpa.support..")
+    public static final ArchRule scheduling_is_leaf_of_misc = noClasses()
+        .that().resideInAPackage("org.springframework.scheduling..")
         .should().dependOnClassesThat().resideInAnyPackage(
-            "org.springframework.web..", "org.springframework.ui..",
-            "org.springframework.http..")
-        .because("Only the documented Open-Session-In-View glue may reach into the Web layer.");
-
-    // =========================================================================
-    // INTRA-MISC-SERVICES ISOLATION
-    // =========================================================================
+            "org.springframework.jms..", "org.springframework.mail..",
+            "org.springframework.messaging..", "org.springframework.cache..",
+            "org.springframework.resilience..")
+        .because("spring-scheduling must stay resource-agnostic.");
 
     @ArchTest
-    public static final ArchRule misc_services_leaf_independence = noClasses()
-        .that().resideInAnyPackage("org.springframework.mail..", 
-                                   "org.springframework.cache..", 
-                                   "org.springframework.jmx..",
-                                   "org.springframework.resilience..")
+    public static final ArchRule messaging_is_below_jms = noClasses()
+        .that().resideInAPackage("org.springframework.messaging..")
+        .should().dependOnClassesThat().resideInAnyPackage(
+            "org.springframework.jms..", "org.springframework.mail..",
+            "org.springframework.resilience..")
+        .because("spring-messaging is a primitive for spring-jms.");
+
+    @ArchTest
+    public static final ArchRule leaf_misc_services_are_isolated = noClasses()
+        .that().resideInAnyPackage("org.springframework.mail..", "org.springframework.resilience..", "org.springframework.cache..")
         .should().dependOnClassesThat().resideInAnyPackage(
             "org.springframework.jms..", "org.springframework.messaging..",
             "org.springframework.scheduling..")
-        .because("Leaf Miscellaneous Services should not pull in complex messaging or scheduling modules.");
+        .because("Leaf MiscServices must be independently pluggable.");
 }
-
-

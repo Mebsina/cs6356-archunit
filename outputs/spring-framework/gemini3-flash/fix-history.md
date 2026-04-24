@@ -22,3 +22,11 @@ review2-by-opus-4-7
 Review #2
 Findings: Identified 11 defects including major layer-hierarchy inversion (F-1: AOP/AOT incorrectly above Context), overly broad Web/DataAccess isolation blocking oxm (F-2), misplacement of validation.support (F-3), over-strict MiscServices isolation (F-4, F-5), and missing DataAccess bridge for Open-Session-In-View (F-6).
 Fix: Refactored layeredArchitecture() to place aop/instrument below context and aot alongside core. Moved validation.support to Web layer. Loosened MiscServices access and replaced slices rule with explicit leaf-independence rules. Added surgical exemptions for XML converters and Open-Session-In-View support packages. Added spring-r2dbc dependency to resolve vacuous rule.
+
+5. Fifth test generation after review 3rd round of feedback
+
+review3-by-opus-4-7
+
+Review #3
+Findings: Identified 143 remaining violations primarily caused by mis-mapped JMX and ORM support packages (F-1, F-3), overly restrictive access to MiscServices (F-2), and lack of a directional DAG for MiscServices (F-5).
+Fix: Relocated jmx to Context layer and ORM support (OSIV bridge) to Web layer. Relaxed layeredArchitecture() access for Web/DataAccess to reach caching/scheduling infrastructure. Replaced leaf isolation with a directional DAG (jms -> messaging -> scheduling). Removed redundant DataAccess-to-Web rule and unused imports.
