@@ -62,3 +62,11 @@ review7-by-opus-4-7
 Review #7
 Findings: Identified a 9-violation regression in orm_only_touches_jdbc_datasource_and_not_r2dbc caused by missing the JDBC exception translation bridge (F-1). ORM dialects (Hibernate/JPA) legitimately depend on jdbc.support.SQLExceptionTranslator to map SQL errors to Spring's DataAccessException hierarchy.
 Fix: Expanded ORM-to-JDBC allowlist to include org.springframework.jdbc.support.. targetting the documented exception-translation path. Updated rule name and .because() to cite both datasource and support as the two permitted integration bridges.
+
+10. Tenth test generation after review 8th round of feedback
+
+review8-by-opus-4-7
+
+Review #8
+Findings: Identified a misleading .because() clause in messaging_does_not_depend_on_other_misc_services (F-1) regarding scheduling. Noted missing sanity checks for leaf modules like mail/scheduling (F-2). Identified latent inconsistency in web_and_dataaccess_are_isolated regarding the OSIV split (F-3) and missing isolation for oxm/jca (F-6).
+Fix: Corrected messaging .because() to reflect deliberate scheduling allowance. Expanded sanity checks with spring_mail_present and spring_scheduling_present. Tightened web_and_dataaccess_are_isolated with OSIV carve-out. Added oxm_is_leaf_of_dataaccess and jca_is_leaf_of_dataaccess for complete DataAccess coverage.

@@ -77,6 +77,8 @@ public class ArchitectureEnforcementTest {
     @ArchTest static final ArchRule spring_jms_present        = modulePresent("org.springframework.jms..",         "jms");
     @ArchTest static final ArchRule spring_jmx_present        = modulePresent("org.springframework.jmx..",         "jmx");
     @ArchTest static final ArchRule spring_cache_present      = modulePresent("org.springframework.cache..",       "cache");
+    @ArchTest static final ArchRule spring_mail_present       = modulePresent("org.springframework.mail..",        "mail");
+    @ArchTest static final ArchRule spring_scheduling_present = modulePresent("org.springframework.scheduling..",  "scheduling");
 
     // =========================================================================
     // LAYERED ARCHITECTURE
@@ -185,12 +187,16 @@ public class ArchitectureEnforcementTest {
         .and().resideOutsideOfPackages(
             "org.springframework.http.converter.xml..",
             "org.springframework.web.servlet.view.xml..")
-        .should().dependOnClassesThat().resideInAnyPackage(
-            "org.springframework.dao..", "org.springframework.jdbc..",
-            "org.springframework.orm..", "org.springframework.r2dbc..",
-            "org.springframework.oxm..")
+        .should().dependOnClassesThat(
+            resideInAnyPackage(
+                "org.springframework.dao..", "org.springframework.jdbc..",
+                "org.springframework.orm..", "org.springframework.r2dbc..",
+                "org.springframework.oxm..")
+            .and(not(resideInAnyPackage(
+                "org.springframework.orm.hibernate5.support..",
+                "org.springframework.orm.jpa.support.."))))
         .because("Web-layer components must reach persistence only through a service facade; "
-               + "XML converters (http.converter.xml, web.servlet.view.xml) are exempted.");
+               + "XML converters are exempted, and OSIV bridge packages (orm.*.support) are classified as Web.");
 
     // =========================================================================
     // INTRA-CORE-CONTAINER ISOLATION
@@ -266,6 +272,25 @@ public class ArchitectureEnforcementTest {
         .because("R2DBC is a peer of JDBC/ORM/OXM.");
 
     @ArchTest
+    public static final ArchRule oxm_is_leaf_of_dataaccess = noClasses()
+        .that().resideInAPackage("org.springframework.oxm..")
+        .should().dependOnClassesThat().resideInAnyPackage(
+            "org.springframework.dao..", "org.springframework.jdbc..",
+            "org.springframework.orm..", "org.springframework.r2dbc..",
+            "org.springframework.jca..")
+        .because("spring-oxm (Object/XML Mapping) is independent of persistence APIs.");
+
+    @ArchTest
+    public static final ArchRule jca_is_leaf_of_dataaccess = noClasses()
+        .that().resideInAPackage("org.springframework.jca..")
+        .should().dependOnClassesThat().resideInAnyPackage(
+            "org.springframework.dao..", "org.springframework.jdbc..",
+            "org.springframework.orm..", "org.springframework.r2dbc..",
+            "org.springframework.oxm..")
+        .because("spring-jca (Java Connector Architecture) is a parallel resource stack, "
+               + "not a consumer of the other persistence APIs.");
+
+    @ArchTest
     public static final ArchRule transaction_abstraction_is_pure = noClasses()
         .that().resideInAPackage("org.springframework.transaction..")
         .should().dependOnClassesThat().resideInAnyPackage(
@@ -296,8 +321,10 @@ public class ArchitectureEnforcementTest {
         .should().dependOnClassesThat().resideInAnyPackage(
             "org.springframework.jms..", "org.springframework.mail..",
             "org.springframework.cache..", "org.springframework.resilience..")
-        .because("spring-messaging is a primitive for spring-jms and must not depend on other "
-               + "MiscServices; only messaging.simp.stomp may depend on spring-scheduling (for heartbeats).");
+        .because("spring-messaging is a primitive that spring-jms builds on; it must not depend "
+               + "on jms (would be cyclic), mail, cache, or resilience. spring-scheduling is "
+               + "deliberately allowed in messaging.simp.* for STOMP and simple-broker heartbeats "
+               + "via TaskScheduler — this is enforced by the layered rule, not this rule.");
 
     @ArchTest
     public static final ArchRule leaf_misc_services_are_isolated = noClasses()
