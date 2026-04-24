@@ -8,6 +8,7 @@ import com.tngtech.archunit.lang.ArchRule;
 
 import java.util.regex.Pattern;
 
+import static com.tngtech.archunit.base.DescribedPredicate.not;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAPackage;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAnyPackage;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
@@ -30,17 +31,6 @@ import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
  *   7. Web            : web, http, ui, protobuf, validation.support,
  *                       orm.hibernate5.support, orm.jpa.support (OSIV/OEMIV glue)
  *   8. MiscServices   : cache, scheduling, messaging, jms, mail, resilience
- *
- * Documented cross-cutting exceptions (precisely scoped):
- *   - web.servlet.resource.* and web.reactive.resource.* may consume spring-cache
- *     for HTTP resource caching.
- *   - web.servlet.config.* and web.reactive.config.* (config DSL) may reference 
- *     spring-cache to configure resource caching registration.
- *   - http.client.reactive.* may consume spring-scheduling for its shared thread
- *     factory in JdkHttpClientResourceFactory.
- *   - orm.hibernate5.support.* and orm.jpa.support.* bridge DataAccess ↔ Web
- *     for Open-Session-In-View / Open-EntityManager-In-View; these packages are
- *     classified as Web members.
  */
 @AnalyzeClasses(packages = "org.springframework", importOptions = {
     ImportOption.DoNotIncludeTests.class,
@@ -60,24 +50,33 @@ public class ArchitectureEnforcementTest {
 
     // =========================================================================
     // SANITY CHECK — required modules must exist on the classpath
+    // One rule per module so a single missing dependency fails the suite with
+    // a clear message naming the specific module.
     // =========================================================================
 
-    @ArchTest
-    public static final ArchRule required_modules_are_on_classpath = classes()
-        .that().resideInAnyPackage(
-            "org.springframework.core..",
-            "org.springframework.beans..",
-            "org.springframework.context..",
-            "org.springframework.aop..",
-            "org.springframework.dao..",
-            "org.springframework.jdbc..",
-            "org.springframework.orm..",
-            "org.springframework.r2dbc..",
-            "org.springframework.web..",
-            "org.springframework.messaging..")
-        .should().haveSimpleNameNotEndingWith("__ShouldNeverMatch__")
-        .because("If this rule reports 'rule was not applied to any class', a core Spring "
-               + "module is missing from the test classpath and other rules are going vacuous.");
+    private static ArchRule modulePresent(String pkg, String moduleName) {
+        return classes()
+            .that().resideInAPackage(pkg)
+            .should().haveSimpleNameNotEndingWith("__ShouldNeverMatch__")
+            .as("spring-" + moduleName + " must be on the test classpath")
+            .because("Otherwise architecture rules targeting " + pkg + " are silently vacuous.");
+    }
+
+    @ArchTest static final ArchRule spring_core_present       = modulePresent("org.springframework.core..",        "core");
+    @ArchTest static final ArchRule spring_beans_present      = modulePresent("org.springframework.beans..",       "beans");
+    @ArchTest static final ArchRule spring_aop_present        = modulePresent("org.springframework.aop..",         "aop");
+    @ArchTest static final ArchRule spring_context_present    = modulePresent("org.springframework.context..",     "context");
+    @ArchTest static final ArchRule spring_expression_present = modulePresent("org.springframework.expression..", "expression");
+    @ArchTest static final ArchRule spring_tx_present         = modulePresent("org.springframework.transaction..", "tx");
+    @ArchTest static final ArchRule spring_jdbc_present       = modulePresent("org.springframework.jdbc..",        "jdbc");
+    @ArchTest static final ArchRule spring_orm_present        = modulePresent("org.springframework.orm..",         "orm");
+    @ArchTest static final ArchRule spring_r2dbc_present      = modulePresent("org.springframework.r2dbc..",       "r2dbc");
+    @ArchTest static final ArchRule spring_oxm_present        = modulePresent("org.springframework.oxm..",         "oxm");
+    @ArchTest static final ArchRule spring_web_present        = modulePresent("org.springframework.web..",         "web");
+    @ArchTest static final ArchRule spring_messaging_present  = modulePresent("org.springframework.messaging..",   "messaging");
+    @ArchTest static final ArchRule spring_jms_present        = modulePresent("org.springframework.jms..",         "jms");
+    @ArchTest static final ArchRule spring_jmx_present        = modulePresent("org.springframework.jmx..",         "jmx");
+    @ArchTest static final ArchRule spring_cache_present      = modulePresent("org.springframework.cache..",       "cache");
 
     // =========================================================================
     // LAYERED ARCHITECTURE
@@ -243,12 +242,15 @@ public class ArchitectureEnforcementTest {
         .because("JDBC is a peer alternative to ORM/R2DBC/OXM, not a consumer.");
 
     @ArchTest
-    public static final ArchRule orm_does_not_know_about_jdbc_core_or_r2dbc = noClasses()
+    public static final ArchRule orm_only_touches_jdbc_datasource_and_not_r2dbc = noClasses()
         .that().resideInAPackage("org.springframework.orm..")
-        .should().dependOnClassesThat().resideInAnyPackage(
-            "org.springframework.jdbc.core..", "org.springframework.r2dbc..")
-        .because("ORM frameworks manage their own connection lifecycle; integrating via JdbcTemplate "
-               + "or r2dbc indicates a layering bug. Integration with jdbc.datasource (connection holder) is allowed.");
+        .should().dependOnClassesThat(
+            resideInAPackage("org.springframework.jdbc..")
+                .and(not(resideInAPackage("org.springframework.jdbc.datasource.."))))
+        .orShould().dependOnClassesThat().resideInAPackage("org.springframework.r2dbc..")
+        .because("ORM frameworks integrate with jdbc.datasource only (ConnectionHolder, "
+               + "DataSourceUtils, LazyConnectionDataSourceProxy); any other jdbc sub-package "
+               + "or r2dbc usage is a layering bug.");
 
     @ArchTest
     public static final ArchRule r2dbc_does_not_know_about_siblings = noClasses()

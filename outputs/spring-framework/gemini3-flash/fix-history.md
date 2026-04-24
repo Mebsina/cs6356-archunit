@@ -46,3 +46,11 @@ review5-by-opus-4-7
 Review #5
 Findings: Identified a 7-violation regression in layered_architecture_is_respected caused by an over-narrow ignoreDependency for caching (F-1). The narrowing failed to account for Web configuration DSL classes (ResourceChainRegistration) that reference cache.Cache.
 Fix: Expanded ignoreDependency source packages to include web.servlet.config.. and web.reactive.config.. targetting the HTTP resource-caching configuration surface. Added org.springframework.dao.. to required_modules_are_on_classpath sanity check (F-2).
+
+8. Eighth test generation after review 6th round of feedback
+
+review6-by-opus-4-7
+
+Review #6
+Findings: Identified a logical flaw in the aggregate required_modules_are_on_classpath rule (F-1) which failed to detect single-module drops. Noted that ORM isolation was too broad (F-2), allowing non-datasource JDBC sub-packages.
+Fix: Replaced aggregate sanity check with 15 individual per-module presence rules (@ArchTest spring_*_present) to ensure explicit failure on any dependency drop. Sharpened ORM isolation to an allowlist strictly limited to jdbc.datasource.. (F-2). Added com.tngtech.archunit.base.DescribedPredicate.not import.
