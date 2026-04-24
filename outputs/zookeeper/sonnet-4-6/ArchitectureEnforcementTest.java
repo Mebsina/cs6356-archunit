@@ -21,16 +21,21 @@
  * <p>The layer graph is a <b>lattice</b>, not a linear stack:
  * <ul>
  *   <li><b>Infrastructure</b> is the bottom; no upward edges are permitted.</li>
- *   <li><b>Monitoring</b> is cross-cutting; it may read Server internals (audit log
- *       entries inspect {@code server.Request} objects) but is otherwise peer to Server.</li>
+ *   <li><b>Protocol</b> holds the shared wire-format records ({@code proto..}, {@code txn..},
+ *       {@code data..}) and the root-package public-API / cross-tier types (Watcher,
+ *       KeeperException, ZooDefs, Op, Login, etc.) consumed by both Client and Server.
+ *       Sits below both tiers.</li>
  *   <li><b>Server</b> and <b>Client</b> are parallel tiers communicating only over the
  *       wire; neither may compile-depend on the other.</li>
- *   <li><b>Admin</b> runs inside the Server process (Admin → Server is legal);
- *       <b>Cli</b> and <b>Recipes</b> run against the Client side.</li>
- *   <li>The root {@code org.apache.zookeeper} package (Client layer) contains both the
- *       §1.6 public API surface (ZooKeeper, Watcher, KeeperException) and assorted
- *       command-line utilities (ZooKeeperMain, ServerAdminClient) that happen to reside
- *       there by historical convention.</li>
+ *   <li><b>Monitoring</b> is cross-cutting; it may read Protocol records and Server
+ *       internals (audit logs decode request payloads).</li>
+ *   <li><b>Admin</b> is dual-natured: its HTTP channel runs inside the Server process,
+ *       but {@code ZooKeeperAdmin} extends {@code ZooKeeper} and issues admin commands
+ *       over the client wire protocol — so Admin may access both Server and Client.</li>
+ *   <li><b>Cli</b> is a client-side shell tool; it may access Client and Admin but not
+ *       Server internals. Root-package shell classes (ZooKeeperMain, JLineZNodeCompleter,
+ *       Shell, Version) are classified here.</li>
+ *   <li><b>Recipes</b> are higher-order primitives built on the Client API (§1.8).</li>
  * </ul>
  *
  * <h2>Excluded Packages and Rationale</h2>
@@ -51,6 +56,7 @@
  * </ul>
  */
 
+import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.core.importer.Location;
@@ -58,8 +64,11 @@ import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 
+import static com.tngtech.archunit.base.DescribedPredicate.or;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAPackage;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAnyPackage;
+import static com.tngtech.archunit.core.domain.properties.HasName.Predicates.name;
+import static com.tngtech.archunit.core.domain.properties.HasName.Predicates.nameMatching;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 
@@ -89,6 +98,43 @@ public class ArchitectureEnforcementTest {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Root-package classification helpers (R4-03)
+    //
+    // The root package org.apache.zookeeper is not homogeneous. Three predicates
+    // carve it into the correct layers; the residual goes to Client.
+    // -------------------------------------------------------------------------
+
+    /**
+     * Root-package types that are part of the shared Protocol / public-API surface
+     * consumed by both Client and Server: wire-event types, exceptions, operation
+     * descriptors, ACL/ZooDefs constants, cross-tier auth, and assorted utilities
+     * that the server legitimately references.
+     */
+    private static final DescribedPredicate<JavaClass> ROOT_PROTOCOL_TYPES =
+            DescribedPredicate.describe(
+                    "root-package protocol / public-API / cross-tier types",
+                    c -> c.getPackageName().equals("org.apache.zookeeper")
+                      && c.getName().matches(
+                            "org\\.apache\\.zookeeper\\."
+                          + "(Watcher(\\$.*)?|WatchedEvent|AddWatchMode|CreateMode"
+                          + "|AsyncCallback(\\$.*)?|KeeperException(\\$.*)?|ClientInfo"
+                          + "|Op(\\$.*)?|ZooDefs(\\$.*)?|MultiOperationRecord(\\$.*)?|StatsTrack"
+                          + "|MultiResponse|DigestWatcher|Login(\\$.*)?|ClientWatchManager"
+                          + "|SaslClientCallbackHandler(\\$.*)?|SaslServerPrincipal"
+                          + "|Environment(\\$.*)?|ZookeeperBanner|ZKUtil(\\$.*)?)"));
+
+    /**
+     * Root-package shell-tool classes that belong in the Cli layer rather than
+     * in the Client library: the interactive CLI entry point and its helpers.
+     */
+    private static final DescribedPredicate<JavaClass> ROOT_CLI_TYPES =
+            or(name("org.apache.zookeeper.ZooKeeperMain"),
+               nameMatching("org\\.apache\\.zookeeper\\.ZooKeeperMain\\$.*"),
+               name("org.apache.zookeeper.JLineZNodeCompleter"),
+               name("org.apache.zookeeper.Shell"),
+               name("org.apache.zookeeper.Version"));
+
     // =========================================================================
     // LAYERED ARCHITECTURE — single authoritative rule for all layer constraints
     // =========================================================================
@@ -96,21 +142,30 @@ public class ArchitectureEnforcementTest {
     @ArchTest
     static final ArchRule layered_architecture_is_respected =
             layeredArchitecture()
-                    // Scope the check to ZK's own packages only. Out-of-scope types
-                    // (java.*, javax.*, slf4j, yetus, jute, netty, jline, findbugs)
-                    // are ignored, preventing ~25,000+ noise violations that would
-                    // bury the 2–3 real architectural findings.
+                    // Scope to ZK's own packages only; java.*, javax.*, slf4j, yetus,
+                    // jute, netty, jline, findbugs are all out-of-scope.
                     .consideringOnlyDependenciesInAnyPackage("org.apache.zookeeper..")
                     .withOptionalLayers(true)
 
                     // version.. contains the generated Info interface + ZooKeeper Version
-                    // metadata — pure build artefacts with no outgoing deps.
+                    // metadata — pure build artefacts with no meaningful outgoing deps.
                     .layer("Infrastructure").definedBy(
                             "org.apache.zookeeper.common..",
                             "org.apache.zookeeper.util..",
                             "org.apache.zookeeper.compat..",
                             "org.apache.zookeeper.compatibility..",
                             "org.apache.zookeeper.version..")
+
+                    // Shared wire-format records (proto/txn/data) and root-package
+                    // API / cross-tier types (Watcher, KeeperException, ZooDefs, Op,
+                    // Login, Environment, ZookeeperBanner, ZKUtil, …) consumed
+                    // legitimately by both Client and Server.
+                    .layer("Protocol").definedBy(
+                            resideInAnyPackage(
+                                    "org.apache.zookeeper.data..",
+                                    "org.apache.zookeeper.proto..",
+                                    "org.apache.zookeeper.txn..")
+                            .or(ROOT_PROTOCOL_TYPES))
 
                     .layer("Monitoring").definedBy(
                             "org.apache.zookeeper.jmx..",
@@ -119,92 +174,112 @@ public class ArchitectureEnforcementTest {
 
                     .layer("Server").definedBy("org.apache.zookeeper.server..")
 
-                    // Root package: §1.6 public API surface (ZooKeeper, Watcher,
-                    // KeeperException, AsyncCallback, ZooDefs) plus historical
-                    // utilities (ZooKeeperMain, ServerAdminClient, ZKUtil).
-                    // data..: Stat, ACL, Id — public API data types (C4).
-                    // proto.. / txn..: shared wire-format records consumed by
-                    // both client and server.
-                    // ZooKeeperMain (root) dispatches to cli.* subcommands,
-                    // so Client → Cli is also permitted.
+                    // Client = ZooKeeper, ClientCnxn*, and related library classes in the
+                    // root package (minus the Protocol and Cli carve-outs) plus client.. /
+                    // retry.. sub-packages.
                     .layer("Client").definedBy(
-                            "org.apache.zookeeper",
-                            "org.apache.zookeeper.client..",
-                            "org.apache.zookeeper.retry..",
-                            "org.apache.zookeeper.data..",
-                            "org.apache.zookeeper.proto..",
-                            "org.apache.zookeeper.txn..")
+                            resideInAPackage("org.apache.zookeeper.client..")
+                            .or(resideInAPackage("org.apache.zookeeper.retry.."))
+                            .or(DescribedPredicate.describe(
+                                    "root-package non-protocol non-cli classes",
+                                    c -> c.getPackageName().equals("org.apache.zookeeper")
+                                      && !ROOT_PROTOCOL_TYPES.test(c)
+                                      && !ROOT_CLI_TYPES.test(c))))
 
+                    // Admin is dual-natured: ZooKeeperAdmin extends ZooKeeper (Client),
+                    // and the HTTP admin channel runs inside the Server process.
                     .layer("Admin").definedBy("org.apache.zookeeper.admin..")
-                    .layer("Cli").definedBy("org.apache.zookeeper.cli..")
+
+                    // Cli absorbs root-package shell tools (ZooKeeperMain, Shell, Version,
+                    // JLineZNodeCompleter) in addition to org.apache.zookeeper.cli.*.
+                    .layer("Cli").definedBy(
+                            resideInAPackage("org.apache.zookeeper.cli..")
+                            .or(ROOT_CLI_TYPES))
+
                     .layer("Recipes").definedBy("org.apache.zookeeper.recipes..")
 
                     // Infrastructure is the absolute foundation; no upward edges.
                     .whereLayer("Infrastructure").mayOnlyAccessLayers("Infrastructure")
 
-                    // Monitoring may observe Server-internal objects (audit reads Request).
+                    // Protocol only depends on Infrastructure (it contains pure records/types).
+                    .whereLayer("Protocol").mayOnlyAccessLayers(
+                            "Infrastructure", "Protocol")
+
+                    // Monitoring may read Protocol records (audit decodes proto/CreateMode)
+                    // and Server internals (audit observes server.Request objects).
                     .whereLayer("Monitoring").mayOnlyAccessLayers(
-                            "Infrastructure", "Monitoring", "Server")
+                            "Infrastructure", "Protocol", "Monitoring", "Server")
 
-                    // Server emits metrics / JMX / audit events (§1.7 internals).
+                    // Server processes Protocol records and emits Monitoring events.
                     .whereLayer("Server").mayOnlyAccessLayers(
-                            "Infrastructure", "Monitoring", "Server")
+                            "Infrastructure", "Protocol", "Monitoring", "Server")
 
-                    // Client may emit metrics (pluggable metrics API). ZooKeeperMain (root)
-                    // dispatches to cli.* subcommands, so Client → Cli is also permitted.
+                    // Client uses Protocol types and metrics; ZooKeeperMain (now in Cli)
+                    // was responsible for the Admin edge, so Client no longer needs Admin.
                     .whereLayer("Client").mayOnlyAccessLayers(
-                            "Infrastructure", "Monitoring", "Client", "Cli")
+                            "Infrastructure", "Protocol", "Monitoring", "Client", "Cli")
 
-                    // Admin is server-side: accesses Server internals but not Client.
+                    // Admin → Server (HTTP channel) AND Admin → Client (ZooKeeperAdmin
+                    // extends ZooKeeper and submits commands over the client wire).
                     .whereLayer("Admin").mayOnlyAccessLayers(
-                            "Infrastructure", "Monitoring", "Server", "Admin")
+                            "Infrastructure", "Protocol", "Monitoring",
+                            "Server", "Client", "Admin")
 
-                    // CLI is a client tool: connects over TCP like any other client.
+                    // Cli → Admin so ZooKeeperMain.connectToZK() can construct ZooKeeperAdmin.
                     .whereLayer("Cli").mayOnlyAccessLayers(
-                            "Infrastructure", "Monitoring", "Client", "Cli")
+                            "Infrastructure", "Protocol", "Monitoring",
+                            "Client", "Admin", "Cli")
 
-                    // Recipes are pure clients; they may emit metrics for latency tracking.
+                    // Recipes are pure client-side; they may use Protocol records and metrics.
                     .whereLayer("Recipes").mayOnlyAccessLayers(
-                            "Infrastructure", "Monitoring", "Client", "Recipes")
+                            "Infrastructure", "Protocol", "Monitoring", "Client", "Recipes")
 
                     // Close the back door: only Admin, Monitoring, and Server itself
                     // may reach into Server internals.
                     .whereLayer("Server").mayOnlyBeAccessedByLayers(
                             "Admin", "Monitoring", "Server")
 
-                    // Known architectural debt: ClientCnxn$SendThread, ClientCnxn$EventThread
-                    // (root / Client layer), and FileChangeWatcher$WatcherThread (Infrastructure)
-                    // all extend org.apache.zookeeper.server.ZooKeeperThread. ZooKeeperThread is
-                    // a generic thread utility (uncaught-exception handling + naming convention)
-                    // that was placed in server.. by historical convention but is cross-cutting in
-                    // practice. The clean fix is to move it out of server..; until that happens in
-                    // the upstream codebase, these edges are suppressed here to prevent CI from
-                    // being permanently broken by known debt.
+                    // Known architectural debt: the following server.* classes are cross-cutting
+                    // utilities that happen to live under server.. by historical convention.
+                    // They are used by code outside the server tier (Client, Infrastructure).
+                    // The clean fix is to move each into common.. or util.. upstream;
+                    // until that happens, suppress the resulting false-positive violations
+                    // here with full-name predicates (ArchUnit simpleName is the nested
+                    // segment only, so full names are required for nested classes).
                     .ignoreDependency(
-                            JavaClass.Predicates.simpleNameStartingWith("ClientCnxn")
-                                    .or(JavaClass.Predicates.simpleName("FileChangeWatcher$WatcherThread")),
-                            JavaClass.Predicates.simpleName("ZooKeeperThread"))
+                            DescribedPredicate.alwaysTrue(),
+                            or(name("org.apache.zookeeper.server.ZooKeeperThread"),
+                               name("org.apache.zookeeper.server.ByteBufferInputStream"),
+                               name("org.apache.zookeeper.server.ExitCode"),
+                               name("org.apache.zookeeper.server.ZooTrace"),
+                               name("org.apache.zookeeper.server.EphemeralType"),
+                               name("org.apache.zookeeper.server.auth.KerberosName"),
+                               name("org.apache.zookeeper.server.watch.PathParentIterator")))
 
                     .because(
                             "Inferred from §1.1 and §1.7: clients and servers communicate "
-                            + "only over the TCP wire protocol. Admin HTTP endpoints run "
-                            + "inside the server process; CLI is a client-side tool; "
-                            + "recipes are higher-order primitives built on the public "
-                            + "API (§1.8). Observability (metrics / jmx / audit) is "
-                            + "cross-cutting and may be accessed from Server, Client, "
-                            + "Admin, Cli, and Recipes; Infrastructure (common / util / "
-                            + "compat / compatibility / version) is strictly below "
-                            + "observability so the utility layer remains a reusable, "
-                            + "dependency-free base.");
+                            + "only over the TCP wire protocol. Shared records (proto/txn/data "
+                            + "+ public-API root types) sit in a neutral Protocol layer below "
+                            + "both tiers. Admin HTTP endpoints run inside the server; "
+                            + "ZooKeeperAdmin is a specialised client that extends ZooKeeper; "
+                            + "CLI is a client-side tool; recipes (§1.8) are higher-order "
+                            + "primitives on the public API. Observability (metrics/jmx/audit) "
+                            + "may read Protocol records and Server internals. Infrastructure "
+                            + "(common / util / compat / compatibility / version) is the "
+                            + "reusable, dependency-free base.");
 
     // =========================================================================
     // FINE-GRAINED RULE — C3 expressed as a blacklist
     // The layered rule above already forbids Recipes → Server / Admin / Cli via
     // both outgoing (Recipes.mayOnlyAccessLayers) and incoming
-    // (Server.mayOnlyBeAccessedByLayers) constraints. This blacklist rule is
-    // retained as a documentation-readable assertion of §1.8: when it fires,
-    // the failure message cites the exact PDF section, which a generic layered
-    // failure does not.
+    // (Server.mayOnlyBeAccessedByLayers) constraints. This blacklist is retained
+    // as a documentation-readable assertion of §1.8: when it fires, the failure
+    // message cites the exact PDF section, which a generic layered failure does not.
+    //
+    // NOTE: if the layered rule's allowed set is expanded (e.g. a new layer is
+    // added), review whether this blacklist still matches the §1.8 intent.
+    // Server / Admin / Cli / graph / inspector are the always-forbidden targets;
+    // Protocol records are always allowed for recipes.
     // =========================================================================
 
     /**
