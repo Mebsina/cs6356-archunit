@@ -18,6 +18,14 @@ Review - #1, 2, 3, ..
 ### Generated arch-go Rules
 [PASTE THE CONTENT OF outputs\[Project Name]\[Model Name]\arch-go.yml OR Makefile]
 
+### Current arch-go Rules
+
+[PASTE THE CONTENT OF outputs\[Project Name]\[Model Name]\arch-go.yml]
+
+### arch-go Test Report
+
+[PASTE THE FULL CONTENTS or path to test report]
+
 ---
 
 ## Output Format

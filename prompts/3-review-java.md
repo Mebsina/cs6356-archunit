@@ -18,6 +18,10 @@ Review - #1, 2, 3, ..
 ### Generated ArchUnit Rules
 [PASTE THE CONTENT OF outputs\[Project Name]\[Model Name]\ArchitectureEnforcementTest.java]
 
+### Surefire Test Report
+
+[PASTE THE FULL CONTENTS OF target/surefire-reports/<TestClass>.txt — every violation line, every rule name, every "X times" header]
+
 ---
 
 ## Output Format
