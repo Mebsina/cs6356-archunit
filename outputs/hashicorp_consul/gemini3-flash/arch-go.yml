@@ -1,0 +1,195 @@
+# =============================================================================
+# HashiCorp Consul Architecture Enforcement Configuration
+# =============================================================================
+#
+# This configuration enforces the architectural integrity of the Consul
+# codebase using arch-go. It ensures proper layering, dependency flow,
+# and structural conventions across the Go module.
+#
+# LAYER HIERARCHY (Bottom to Top):
+# -------------------------------
+# 1. Foundation (Base Utilities): Primitive libraries and SDKs.
+#    - github.com/hashicorp/consul/lib/**
+#    - github.com/hashicorp/consul/sdk/**
+#    - github.com/hashicorp/consul/types
+#    - github.com/hashicorp/consul/version
+#
+# 2. Data Plane / Protos: Generated protobuf structures and data definitions.
+#    - github.com/hashicorp/consul/proto/**
+#    - github.com/hashicorp/consul/proto-public/**
+#
+# 3. Domain Core (Internal): Business logic and storage implementations.
+#    - github.com/hashicorp/consul/internal/**
+#
+# 4. Control Plane (Agent): The core Consul agent daemon logic.
+#    - github.com/hashicorp/consul/agent/**
+#
+# 5. Interface (API): Public client library for external consumers.
+#    - github.com/hashicorp/consul/api/**
+#
+# 6. Consumer (Command): CLI implementations and command-line entry points.
+#    - github.com/hashicorp/consul/command/**
+#
+# EXCLUDED PACKAGES:
+# ------------------
+# The following packages are excluded from architectural enforcement because 
+# they contain generated code, test mocks, or infrastructure-specific tests
+# that do not follow production architectural patterns:
+# - github.com/hashicorp/consul/grpcmocks/** : Generated gRPC mock stubs.
+# - github.com/hashicorp/consul/proto/private/** : Generated private protos.
+# - github.com/hashicorp/consul/proto-public/** : Generated public protos.
+# - github.com/hashicorp/consul/test-integ/** : Integration test suites.
+# - github.com/hashicorp/consul/sdk/testutil/** : SDK-level test utilities.
+# - github.com/hashicorp/consul/lib/testhelpers : Library test helpers.
+# - github.com/hashicorp/consul/agent/mock : Agent-level mocks.
+# =============================================================================
+
+version: 1
+description: Architectural rules for HashiCorp Consul enforcing a layered structure.
+
+# =============================================================================
+# DEPENDENCIES RULES
+# =============================================================================
+dependenciesRules:
+  - description: >
+      Foundation packages (lib, sdk, types) are the base of the project and 
+      must not depend on any higher-level layers such as agent, api, internal, 
+      or command packages.
+    package: "github.com/hashicorp/consul/lib/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/command/**"
+
+  - description: >
+      SDK packages are shared primitives and must remain independent of 
+      operational logic in agent, api, or internal.
+    package: "github.com/hashicorp/consul/sdk/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/command/**"
+
+  - description: >
+      Domain Core (internal) packages must not depend on the higher-level 
+      Agent or API layers. They should be self-contained or depend only 
+      on Foundation and Protos.
+    package: "github.com/hashicorp/consul/internal/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/command/**"
+
+  - description: >
+      Intra-layer constraint: Storage implementations in the internal layer 
+      must not have cross-dependencies to ensure pluggability. 
+      Specifically, the Raft storage implementation must not depend on the 
+      in-memory implementation.
+    package: "github.com/hashicorp/consul/internal/storage/raft/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/internal/storage/inmem/**"
+
+  - description: >
+      The Agent layer must not depend on the API or Command layers. 
+      The API is a consumer of the Agent, and the Command layer is a 
+      consumer of both.
+    package: "github.com/hashicorp/consul/agent/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/command/**"
+
+  - description: >
+      The API package is the public client library and must not depend 
+      on any internal or agent logic, keeping it lightweight for external 
+      consumers.
+    package: "github.com/hashicorp/consul/api/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+
+  - description: >
+      CLI Command implementations are the top layer and should only 
+      interact with the system via the Agent or API. They must not 
+      depend on the troubleshooting utilities to avoid circular dependencies.
+    package: "github.com/hashicorp/consul/command/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+# =============================================================================
+# CONTENTS RULES
+# =============================================================================
+contentsRules:
+  - description: >
+      Interface definitions for core logic should belong in the internal 
+      domain packages, not in the infrastructure-heavy agent packages. 
+      This ensures that the domain logic is decoupled from the runtime.
+    package: "github.com/hashicorp/consul/internal/resource/**"
+    shouldOnlyContain:
+      - interfaces: true
+      - structs: true
+      - functions: true
+
+  - description: >
+      Generated proto packages must not contain hand-written interface 
+      definitions or complex functions. They are strictly reserved for 
+      data structures.
+    package: "github.com/hashicorp/consul/proto/**"
+    shouldNotContainAnyOf:
+      - interfaces: true
+      - functions: true
+
+  - description: >
+      Mock packages must not contain production business logic or complex 
+      functions. They should only contain generated struct definitions 
+      and simple mock implementations.
+    package: "github.com/hashicorp/consul/grpcmocks/**"
+    shouldNotContainAnyOf:
+      - functions: true
+
+# =============================================================================
+# NAMING RULES
+# =============================================================================
+namingRules:
+  - description: >
+      To maintain consistency in storage abstractions, all types in 
+      internal/storage/** that implement a Store interface must be 
+      suffixed with 'Store'.
+    package: "github.com/hashicorp/consul/internal/storage/**"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "Store"
+      shouldHaveSimpleNameEndingWith: "Store"
+
+  - description: >
+      All types in internal/resource/** implementing a Repository 
+      interface must be suffixed with 'Repository' to clearly identify 
+      them as persistence components.
+    package: "github.com/hashicorp/consul/internal/resource/**"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "Repository"
+      shouldHaveSimpleNameEndingWith: "Repository"
+
+# =============================================================================
+# FUNCTIONS RULES
+# =============================================================================
+functionsRules:
+  - description: >
+      Functions in the core internal layer must have a cyclomatic complexity 
+      of at most 15 to ensure maintainability and readability.
+    package: "github.com/hashicorp/consul/internal/**"
+    maxComplexity: 15
+
+  - description: >
+      Foundation utility functions in the lib package must return at most 
+      two values (usually a result and an error) to maintain simplicity.
+    package: "github.com/hashicorp/consul/lib/**"
+    maxReturnValues: 2

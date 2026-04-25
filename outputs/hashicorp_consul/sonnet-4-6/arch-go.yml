@@ -1,0 +1,1974 @@
+# =============================================================================
+# arch-go.yml - Architectural Rules for github.com/hashicorp/consul
+# =============================================================================
+#
+# LAYER HIERARCHY (bottom to top - dependencies must only point downward)
+#
+#   Layer 1 - Foundation / Shared Primitives (no internal deps)
+#     Packages: lib/**, sdk/**, types, ipaddr, logging/**, sentinel,
+#               service_os, snapshot, tlsutil, version/**, acl/**,
+#               proto/private/**, proto-public/**
+#     Role: Primitive utilities, type definitions, generated protobuf stubs,
+#           and SDK helpers shared by every other layer.
+#
+#   Layer 2 - Internal Framework  (must not import Layers 3-5)
+#     Packages: internal/controller/**, internal/storage/**,
+#               internal/resource/**, internal/multicluster,
+#               internal/dnsutil, internal/gossip/**, internal/go-sso/**,
+#               internal/protohcl, internal/protoutil, internal/radix,
+#               internal/resourcehcl, envoyextensions/**
+#     Role: Generic controller runtime, pluggable storage backends, resource
+#           registry, and Envoy extension primitives used by the agent layer.
+#     NOTE: rules in this file forbid Layer-2 subjects from importing Layers 3-5
+#           (agent/**, command/**, api/**, connect/**, troubleshoot/**). Peer
+#           imports among internal/** packages and from internal/** into
+#           Foundation are intentionally NOT forbidden here; the original
+#           prose “depends on Foundation only” is therefore aspirational.
+#           Encoding a strict Layer-2 peer DAG would require an agreed
+#           internal/** edge list against the real import graph.
+#
+#   Layer 3 - Agent / Control Plane  (depends on Layers 1-2)
+#     Packages: agent/** (except agent/consul/**)
+#     Role: Consul client-side agent: config loading, ACL resolution, health
+#           checks, cache, DNS, gRPC/RPC client stacks, proxycfg, XDS server,
+#           local state sync, token management.
+#
+#   Layer 4 - Server / Consensus  (depends on Layers 1-3)
+#     Packages: agent/consul/**
+#     Role: Consul server: Raft FSM, KV state machine, prepared queries,
+#           peering RPC, discovery chain, autopilot, usage metrics, WAN
+#           federation. Only the server layer may access the state store.
+#
+#   Layer 5 - API / CLI / Connect  (depends on Layers 1-4)
+#     Packages: api/**, command/**, connect/**, troubleshoot/**
+#     Role: Public HTTP API client library, CLI commands, Connect SDK.
+#           These are leaf packages and must not be imported by inner layers.
+#
+# EXCLUDED / SPECIAL-SCOPE PACKAGES (outside the five-layer chart; see rules)
+#   - grpcmocks/**            : Generated gRPC mock stubs; build artefacts only;
+#                             dependenciesRules outbound guards apply.
+#   - proto/private/**/prototest : Test helper; not production code.
+#   - internal/testing/**     : Test-only helpers; dependenciesRules ban imports
+#                               of agent/consul/** (see Harness section).
+#   - internal/tools/**       : protoc plug-in binaries; build-time utilities;
+#                             dependenciesRules outbound guards apply (see Harness).
+#   - internal/resource/protoc-gen-* : Code-generation binaries, not imported.
+#   - internal/resource/demo  : Demo/example package; not production.
+#   - internal/controller/controllermock : Mock; test helper only.
+#   - internal/controller/controllertest : Integration test harness.
+#   - internal/storage/conformance : Storage conformance test suite.
+#   - internal/protohcl/testproto : Generated test protobuf types.
+#   - agent/grpc-external/testutils : gRPC test utilities.
+#   - agent/grpc-middleware/testutil : Middleware test utilities.
+#   - agent/xds/testcommon    : XDS test helpers.
+#   - agent/xds/validateupstream-test : Test-only validate package.
+#   - agent/mock              : Agent-level mock objects for tests.
+#   - agent/routine-leak-checker : Test leak detection utility.
+#   - lib/testhelpers         : Test-only library helpers.
+#   - sdk/testutil/**         : SDK test utilities.
+#   - test-integ/**           : Integration tests; dependenciesRules ban
+#                               agent/consul/** imports (Harness section).
+#   - testing/deployer/**   : Deployer scaffolding; same server import ban.
+#   - testrpc                 : RPC test helper; same server import ban.
+#   - tools/**                : Tooling binaries; same server import ban.
+#
+# Static import rules cannot prove transitive / indirect violations across
+# intermediate packages; a shim package in an “allowed” prefix can still
+# re-export types from a forbidden prefix — pair rules on stable intermediates
+# or use go mod graph / custom checks for critical edges if required.
+#
+# Deployment/runtime diagram constraints (control vs data plane, client–server
+# control paths, proxy mediation, app isolation) are NOT enforced by this file.
+# arch-go matches Go import paths only; runtime topology (sidecar mediation,
+# control vs data-plane separation, app traffic isolation, server-only RPC
+# paths) cannot be expressed without an explicit package taxonomy mapped to
+# those roles. Reviewers MUST treat the diagram constraints as out of scope
+# for these YAML rules; CI PASS here does not imply diagram conformance.
+#
+# Runtime topology in diagrams is mapped via this file’s package rules, not 1:1
+# to every diagram arrow.
+#
+# Intra-agent/consul import acyclicity is only partially encoded (state, fsm,
+# discoverychain slices); the rest of the server tree (stream, watch, auth,
+# xdscapacity, controller, etc.) is not a full pairwise matrix here. Cycle
+# detection across the server tree is delegated to `go build` / import-graph
+# analysis in CI; arch-go will not catch new cycles outside the listed slices.
+#
+# arch-go “coverage” metrics, if shown, are tool heuristics, not a constraint
+# coverage matrix. Test-only and excluded package paths in the list above are
+# documented in comments; arch-go may still evaluate them where matched by
+# a rule’s package glob.
+#
+# Static import rules cannot detect transitive “shim” laundering: a package
+# in an allowed prefix may re-export forbidden types. Pair these rules with
+# external lint (depguard, custom analyzers, `go mod graph`) for choke-point
+# packages such as lib/safe, agent/structs adapters, and proto re-exports.
+#
+# Brittle generated-code rules: contentsRules `shouldOnlyContain` on
+# proto/**, proto-public/**, and grpcmocks/** is sensitive to protoc/mockgen
+# version upgrades that may emit additional helpers classified by arch-go as
+# functions. Pin generator versions in go.mod / tools.go and re-run after
+# regeneration before merging.
+# =============================================================================
+
+# Pin the arch-go schema version explicitly. Without `version: 1`, behaviour
+# is implementation-defined when developers or CI install arch-go/arch-go v2
+# (different `interfaceImplementationNamingRule` shape) instead of
+# fdaines/arch-go v1 (Makefile default). Pair with the Makefile
+# `arch-version-check` target which asserts the installed binary is v1.
+version: 1
+
+# Threshold defaults are intentionally explicit. `compliance: 100` requires
+# every documented rule to PASS. `coverage: 0` accepts arch-go's package-touch
+# heuristic as non-architectural (see header narrative); raise this number
+# only if the team commits to growing the rule scope to cover that fraction
+# of packages.
+threshold:
+  compliance: 100
+  coverage: 0
+
+description: >
+  Enforces static import-path layering for github.com/hashicorp/consul along
+  five bands: Foundation -> Internal Framework -> Agent / Control Plane ->
+  Server / Consensus -> API / CLI / Connect. Lower bands must not import
+  higher bands. Layer-2 peer imports (internal/** -> internal/**) are
+  intentionally NOT forbidden by this file (one targeted exception:
+  internal/multicluster must not import internal/controller/**); the broader
+  "Foundation only" prose in the architecture documentation is enforced via
+  code review and `go mod graph`, not arch-go. Layer-5 leaves carry asymmetric
+  isolation: api/**, connect/**, and troubleshoot/** are strict leaves
+  (no agent/**, internal/**, envoyextensions/**); command/** is partially
+  permissive (it must reach the agent for entrypoints) but is banned from
+  agent/consul/**, internal/**, and envoyextensions/**. Generated protobuf
+  stubs, mock packages, test helpers, build-time codegen binaries, and
+  diagram-level runtime topology are documented as out of scope. Module-prefix
+  layering only, not deployment/runtime topology from architecture diagrams.
+
+# =============================================================================
+# DEPENDENCIES RULES
+# =============================================================================
+dependenciesRules:
+
+  # ---------------------------------------------------------------------------
+  # Layer 1 - Foundation: must not import any internal consul package
+  # ---------------------------------------------------------------------------
+  - description: >
+      Foundation packages (lib, sdk, types, ipaddr, logging, acl, proto, tlsutil,
+      sentinel, service_os, snapshot, version) are the lowest layer and must not
+      import any other internal consul package. They may only depend on the Go
+      standard library and approved third-party modules.
+    package: "github.com/hashicorp/consul/lib/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/envoyextensions/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      lib root package must match the same Foundation deny list as lib/**
+      (glob `/**` may not apply to the directory root import path).
+    package: "github.com/hashicorp/consul/lib"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/envoyextensions/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      sdk packages are Foundation-layer primitives; they must not import agent,
+      command, api, connect, internal, or envoyextensions packages.
+    package: "github.com/hashicorp/consul/sdk/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/envoyextensions/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      The types package is a primitive; it must not import any higher-layer
+      consul packages.
+    package: "github.com/hashicorp/consul/types"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/envoyextensions/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      acl and acl/resolver are Foundation-layer access-control primitives; they
+      must not import agent, command, api, or connect packages.
+    package: "github.com/hashicorp/consul/acl/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/envoyextensions/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      acl root package must match the same Foundation deny list as acl/**
+      (glob `/**` may not apply to the directory root import path).
+    package: "github.com/hashicorp/consul/acl"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/envoyextensions/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      Generated private protobuf packages are Foundation artefacts and must not
+      depend on any agent, command, API, connect, or internal packages.
+    package: "github.com/hashicorp/consul/proto/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/envoyextensions/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      Generated public protobuf packages (proto-public) are Foundation artefacts
+      and must not depend on any agent, command, API, or internal packages.
+    package: "github.com/hashicorp/consul/proto-public/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/envoyextensions/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      logging is a Foundation utility and must not import agent, command, api,
+      connect, or internal packages.
+    package: "github.com/hashicorp/consul/logging/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/envoyextensions/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      logging root package must match the same Foundation deny list as logging/**
+      (glob `/**` may not apply to the directory root import path).
+    package: "github.com/hashicorp/consul/logging"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/envoyextensions/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      tlsutil is a Foundation utility and must not import non-foundation consul
+      packages.
+    package: "github.com/hashicorp/consul/tlsutil"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/envoyextensions/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      The ipaddr package is Foundation and must not import non-foundation
+      consul code.
+    package: "github.com/hashicorp/consul/ipaddr"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/envoyextensions/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      The sentinel package is Foundation and must not import non-foundation
+      consul code.
+    package: "github.com/hashicorp/consul/sentinel"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/envoyextensions/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      The service_os package is Foundation and must not import non-foundation
+      consul code.
+    package: "github.com/hashicorp/consul/service_os"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/envoyextensions/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      The snapshot package is Foundation and must not import non-foundation
+      consul code.
+    package: "github.com/hashicorp/consul/snapshot"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/envoyextensions/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      The version and versiontest packages are Foundation and must not import
+      non-foundation consul code.
+    package: "github.com/hashicorp/consul/version/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/envoyextensions/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      The top-level version package (import path with no subpath) is
+      Foundation and must not import non-foundation consul code.
+    package: "github.com/hashicorp/consul/version"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/envoyextensions/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  # ---------------------------------------------------------------------------
+  # Harness / support trees (explicit outbound guards; outside five-layer chart)
+  # ---------------------------------------------------------------------------
+  - description: >
+      Integration test-integ packages must not import server consensus internals.
+    package: "github.com/hashicorp/consul/test-integ/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+
+  - description: >
+      testing/deployer scaffolding must not import server consensus internals.
+    package: "github.com/hashicorp/consul/testing/deployer/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+
+  - description: >
+      testrpc helpers must not import server consensus internals.
+    package: "github.com/hashicorp/consul/testrpc"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+
+  - description: >
+      tools/** binaries must not import server consensus internals.
+    package: "github.com/hashicorp/consul/tools/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+
+  - description: >
+      internal/testing helpers must not import server consensus internals.
+    package: "github.com/hashicorp/consul/internal/testing/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+
+  - description: >
+      internal/tools hosts protoc and codegen binaries; they must not depend on
+      the agent, server, CLI, public API, Connect SDK, or troubleshoot packages.
+    package: "github.com/hashicorp/consul/internal/tools/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+        - "github.com/hashicorp/consul/internal/testing/**"
+
+  - description: >
+      grpcmocks packages must not import runtime product layers; mocks are build
+      and test artefacts only.
+    package: "github.com/hashicorp/consul/grpcmocks/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      Module-root glue must not depend on integration harness packages as
+      libraries (keeps production entrypoints from coupling to test-only trees).
+    package: "github.com/hashicorp/consul"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/test-integ/**"
+        - "github.com/hashicorp/consul/testing/deployer/**"
+        - "github.com/hashicorp/consul/testrpc"
+
+  # ---------------------------------------------------------------------------
+  # Layer 2 - Internal Framework: must not import Layer 3-5
+  # ---------------------------------------------------------------------------
+  - description: >
+      The internal/controller framework provides a generic reconciliation runtime.
+      It must not import agent, command, api, or connect packages, keeping the
+      framework decoupled from the agent's operational concerns.
+    package: "github.com/hashicorp/consul/internal/controller/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      internal/controller root package must match the same dependency guard as
+      subpackages (glob `/**` may not apply to the directory root import path).
+    package: "github.com/hashicorp/consul/internal/controller"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      internal/storage in-memory backend must not import product layers (agent,
+      command, api, connect, troubleshoot). Scoped per-backend so the
+      conformance test suite below can carry a relaxed deny list. arch-go v1
+      does not support per-rule exclude globs; documentation-only exclusion
+      lists do not constrain it.
+    package: "github.com/hashicorp/consul/internal/storage/inmem"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      internal/storage raft backend must not import product layers (same
+      Layer-2 framework guards as the inmem backend).
+    package: "github.com/hashicorp/consul/internal/storage/raft"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      internal/storage/conformance is a cross-cutting test contract suite (see
+      "EXCLUDED / SPECIAL-SCOPE PACKAGES" in the header). It is intentionally
+      out of scope for full Layer-2 product-layer guards because conformance
+      suites legitimately need to import test fixtures and helpers across
+      packages, but it must not import the CLI (command/**) or diagnostics
+      tooling (troubleshoot/**) so the storage contract stays decoupled from
+      operator-facing surfaces.
+    package: "github.com/hashicorp/consul/internal/storage/conformance"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      internal/storage root must match internal/storage backend framework
+      outbound guards (glob `/**` may not apply to the directory root import
+      path; this duplicate keeps the root-package import path constrained).
+    package: "github.com/hashicorp/consul/internal/storage"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      internal/dnsutil is Internal Framework and must not import agent, command,
+      api, connect, or troubleshoot packages.
+    package: "github.com/hashicorp/consul/internal/dnsutil"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      internal/gossip libraries must not import agent, command, api, connect, or
+      troubleshoot packages.
+    package: "github.com/hashicorp/consul/internal/gossip/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      internal/go-sso must not import agent, command, api, connect, or
+      troubleshoot packages.
+    package: "github.com/hashicorp/consul/internal/go-sso/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      internal/multicluster orchestrates resource and storage backends; to keep
+      the multicluster control plane testable in isolation it must not import
+      product layers (agent, command, api, connect, troubleshoot) AND must not
+      import the controller framework directly. Multicluster is invoked via
+      framework callbacks; a direct import would create the most likely
+      Layer-2 peer cycle in this codebase. This is the single Layer-2 peer ban
+      this file enforces; the rest of the Layer-2 peer DAG is documented in
+      the header but intentionally not automated.
+    package: "github.com/hashicorp/consul/internal/multicluster"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+        - "github.com/hashicorp/consul/internal/controller/**"
+
+  - description: >
+      internal/protohcl (including generated testproto) must not import agent,
+      command, api, connect, or troubleshoot packages.
+    package: "github.com/hashicorp/consul/internal/protohcl/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      internal/protohcl root must match internal/protohcl/** Layer-2 framework
+      outbound guards. The `/**` glob may not match the directory root import
+      path per the generator contract; this duplicate keeps Layer-2 isolation
+      enforced on the root `internal/protohcl` package itself (a textbook
+      Layer-2 framework Protocol Buffer <-> HCL bridge).
+    package: "github.com/hashicorp/consul/internal/protohcl"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      internal/protoutil must not import agent, command, api, connect, or
+      troubleshoot packages.
+    package: "github.com/hashicorp/consul/internal/protoutil"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      internal/radix must not import agent, command, api, connect, or
+      troubleshoot packages.
+    package: "github.com/hashicorp/consul/internal/radix"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      internal/resourcehcl must not import agent, command, api, connect, or
+      troubleshoot packages.
+    package: "github.com/hashicorp/consul/internal/resourcehcl"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      internal/resource defines the resource registry and HTTP gateway. It must
+      not import agent, command, API, or connect packages to keep the framework
+      independent of product layers.
+    package: "github.com/hashicorp/consul/internal/resource/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      internal/resource root must match internal/resource/** framework outbound
+      guards (glob `/**` may not apply to the directory root import path).
+    package: "github.com/hashicorp/consul/internal/resource"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      Top-level envoyextensions must not import any consul agent packages or
+      command/api/connect/troubleshoot packages.
+    package: "github.com/hashicorp/consul/envoyextensions/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  # ---------------------------------------------------------------------------
+  # Layer 3 - Agent / Control Plane: must not import Layer 4 (server state)
+  # or Layer 5 (api, command, connect). The broad pattern agent/** is not
+  # used: it also matches agent/consul/** and cannot list agent/consul in
+  # shouldNotDependsOn (server self-imports). Each non-server agent prefix is
+  # listed explicitly below; agent/consul/** is Layer 4 and has separate rules.
+  # ---------------------------------------------------------------------------
+  - description: >
+      agent (root) must not import the server, CLI, public API, or Connect
+      client packages.
+    package: "github.com/hashicorp/consul/agent"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/grpc-internal (internal gRPC balancer/resolver) must not import
+      the server, CLI, public API, Connect client, troubleshoot, or circular
+      gRPC/XDS packages.
+    package: "github.com/hashicorp/consul/agent/grpc-internal/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+        - "github.com/hashicorp/consul/agent/grpc-external/**"
+        - "github.com/hashicorp/consul/agent/xds/**"
+
+  - description: >
+      agent/grpc-internal root must match the same dependency guard as
+      subpackages (glob `/**` may not apply to the directory root import path).
+    package: "github.com/hashicorp/consul/agent/grpc-internal"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+        - "github.com/hashicorp/consul/agent/grpc-external/**"
+        - "github.com/hashicorp/consul/agent/xds/**"
+
+  - description: >
+      agent/grpc-middleware must not import the server, CLI, public API,
+      Connect client, troubleshoot, or circular gRPC/XDS packages.
+    package: "github.com/hashicorp/consul/agent/grpc-middleware/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+        - "github.com/hashicorp/consul/agent/grpc-external/**"
+        - "github.com/hashicorp/consul/agent/xds/**"
+
+  - description: >
+      agent/grpc-middleware root must match the same dependency guard as
+      subpackages (glob `/**` may not apply to the directory root import path).
+    package: "github.com/hashicorp/consul/agent/grpc-middleware"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+        - "github.com/hashicorp/consul/agent/grpc-external/**"
+        - "github.com/hashicorp/consul/agent/xds/**"
+
+  - description: >
+      agent/cache and agent/cache-types must not import agent/proxycfg,
+      agent/xds, the server, CLI, public API, or Connect client packages.
+    package: "github.com/hashicorp/consul/agent/cache/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+        - "github.com/hashicorp/consul/agent/proxycfg/**"
+        - "github.com/hashicorp/consul/agent/xds/**"
+
+  - description: >
+      agent/cache root must match agent/cache/** Layer 3 outbound guards (glob
+      `/**` may not apply to the directory root import path).
+    package: "github.com/hashicorp/consul/agent/cache"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+        - "github.com/hashicorp/consul/agent/proxycfg/**"
+        - "github.com/hashicorp/consul/agent/xds/**"
+
+  - description: >
+      agent/cache-types must not import agent/proxycfg, agent/xds, the server,
+      CLI, public API, or Connect client packages.
+    package: "github.com/hashicorp/consul/agent/cache-types"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+        - "github.com/hashicorp/consul/agent/proxycfg/**"
+        - "github.com/hashicorp/consul/agent/xds/**"
+
+  - description: >
+      agent/proxycfg must not import agent/xds, the server, CLI, public API, or
+      Connect client packages.
+    package: "github.com/hashicorp/consul/agent/proxycfg/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+        - "github.com/hashicorp/consul/agent/xds/**"
+
+  - description: >
+      agent/structs contains shared data structures for the agent and server
+      layers. It must not import agent/consul (server), agent/proxycfg, or
+      agent/xds to remain a neutral shared package.
+    package: "github.com/hashicorp/consul/agent/structs/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/agent/proxycfg/**"
+        - "github.com/hashicorp/consul/agent/xds/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/config must not import agent/consul (server), agent/proxycfg, or
+      agent/xds. Configuration loading is a lower-level concern that must not
+      pull in server or proxy subsystems.
+    package: "github.com/hashicorp/consul/agent/config"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/agent/proxycfg/**"
+        - "github.com/hashicorp/consul/agent/xds/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/rpcclient packages provide thin RPC client wrappers used by the
+      agent. They must not import agent/consul (server packages) to keep the
+      client/server boundary intact.
+    package: "github.com/hashicorp/consul/agent/rpcclient/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/ae (Layer 3) must not import the server, CLI, public API, or
+      Connect client packages.
+    package: "github.com/hashicorp/consul/agent/ae/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/auto-config (Layer 3) must not import the server, CLI, public API,
+      or Connect client packages.
+    package: "github.com/hashicorp/consul/agent/auto-config/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/blockingquery (Layer 3) must not import the server, CLI, public
+      API, or Connect client packages.
+    package: "github.com/hashicorp/consul/agent/blockingquery/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/cacheshim (Layer 3) must not import the server, CLI, public API, or
+      Connect client packages.
+    package: "github.com/hashicorp/consul/agent/cacheshim/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/checks (Layer 3) must not import the server, CLI, public API, or
+      Connect client packages.
+    package: "github.com/hashicorp/consul/agent/checks/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/configentry (Layer 3) must not import the server, CLI, public
+      API, or Connect client packages.
+    package: "github.com/hashicorp/consul/agent/configentry/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent-side connect packages (import path agent/connect) must not import
+      the server, CLI, public top-level connect SDK, or troubleshoot packages.
+    package: "github.com/hashicorp/consul/agent/connect/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/debug (Layer 3) must not import the server, CLI, public API, or
+      Connect client packages.
+    package: "github.com/hashicorp/consul/agent/debug/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/dns (Layer 3) must not import the server, CLI, public API, or
+      Connect client packages.
+    package: "github.com/hashicorp/consul/agent/dns/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/envoyextensions (Layer 3) wires Envoy behaviour into the agent; it
+      must not import the server, CLI, public API, or top-level connect SDK. It
+      may import github.com/hashicorp/consul/envoyextensions/** (Layer 2 shared
+      primitives); duplication of types across the two trees is a design smell
+      but not separately linted here.
+    package: "github.com/hashicorp/consul/agent/envoyextensions/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/exec (Layer 3) must not import the server, CLI, public API, or
+      Connect client packages.
+    package: "github.com/hashicorp/consul/agent/exec/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/grpc-external (Layer 3) must not import the server, CLI, public
+      API, or Connect client packages.
+    package: "github.com/hashicorp/consul/agent/grpc-external/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/leafcert (Layer 3) must not import the server, CLI, public API, or
+      Connect client packages.
+    package: "github.com/hashicorp/consul/agent/leafcert/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/local (Layer 3) must not import the server, CLI, public API, or
+      Connect client packages.
+    package: "github.com/hashicorp/consul/agent/local/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/log-drop (Layer 3) must not import the server, CLI, public API, or
+      Connect client packages.
+    package: "github.com/hashicorp/consul/agent/log-drop/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/metadata (Layer 3) must not import the server, CLI, public API,
+      or Connect client packages.
+    package: "github.com/hashicorp/consul/agent/metadata/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/metrics (Layer 3) must not import the server, CLI, public API, or
+      Connect client packages.
+    package: "github.com/hashicorp/consul/agent/metrics/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/mock (Layer 3) must not import the server, CLI, public API, or
+      Connect client packages.
+    package: "github.com/hashicorp/consul/agent/mock/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/netutil (Layer 3) must not import the server, CLI, public API, or
+      Connect client packages.
+    package: "github.com/hashicorp/consul/agent/netutil/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/pool (Layer 3) must not import the server, CLI, public API, or
+      Connect client packages.
+    package: "github.com/hashicorp/consul/agent/pool/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/proxycfg-glue (Layer 3) must not import the server, CLI, public API,
+      or Connect client packages.
+    package: "github.com/hashicorp/consul/agent/proxycfg-glue/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/proxycfg-sources (Layer 3) must not import the server, CLI, public
+      API, or Connect client packages.
+    package: "github.com/hashicorp/consul/agent/proxycfg-sources/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/router (Layer 3) must not import the server, CLI, public API, or
+      Connect client packages.
+    package: "github.com/hashicorp/consul/agent/router/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/routine-leak-checker (Layer 3) must not import the server, CLI,
+      public API, or Connect client packages.
+    package: "github.com/hashicorp/consul/agent/routine-leak-checker/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/rpc (Layer 3) must not import the server, CLI, public API, or
+      Connect client packages.
+    package: "github.com/hashicorp/consul/agent/rpc/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/submatview (Layer 3) must not import the server, CLI, public API,
+      or Connect client packages.
+    package: "github.com/hashicorp/consul/agent/submatview/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/systemd (Layer 3) must not import the server, CLI, public API, or
+      Connect client packages.
+    package: "github.com/hashicorp/consul/agent/systemd/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/token (Layer 3) must not import the server, CLI, public API, or
+      Connect client packages.
+    package: "github.com/hashicorp/consul/agent/token/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/uiserver (Layer 3) must not import the server, CLI, public API, or
+      Connect client packages.
+    package: "github.com/hashicorp/consul/agent/uiserver/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/xds (Layer 3) must not import the server, CLI, public API, or
+      Connect client packages.
+    package: "github.com/hashicorp/consul/agent/xds/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  # ---------------------------------------------------------------------------
+  # Layer 3 - Agent / Control Plane: directory-root mirrors
+  #
+  # Per the generator contract documented in prompts/1-generate-go.md, the
+  # `/**` glob matches sub-packages and may NOT match the root directory
+  # import path. Every Layer-3 agent subtree above is a single-directory
+  # package in inputs/go/1_hashicorp_consul.txt; without these mirrors the
+  # `/**` rule above could match zero packages and silently allow forbidden
+  # imports of agent/consul/**, command/**, api/**, connect/**, or
+  # troubleshoot/** from the root directory of each subtree.
+  #
+  # FORWARD-COMPAT NOTE (Review #5 / [F11]): for many single-directory leaves
+  # (agent/ae, auto-config, blockingquery, cacheshim, checks, configentry,
+  # debug, dns, envoyextensions, exec, leafcert, local, log-drop, metadata,
+  # metrics, mock, netutil, pool, proxycfg, proxycfg-glue, router,
+  # routine-leak-checker, submatview, systemd, token, uiserver) the paired
+  # `/**` rule above matches zero packages today and the root mirror below
+  # carries the only active enforcement. The `/**` siblings are kept as
+  # forward-compatibility scaffolding so adding a child package later does
+  # not silently slip past CI; reviewers should subtract those duplicates
+  # when counting independent constraints in the test report.
+  # ---------------------------------------------------------------------------
+  - description: >
+      agent/ae root mirror (pair with agent/ae/**).
+    package: "github.com/hashicorp/consul/agent/ae"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/auto-config root mirror (pair with agent/auto-config/**).
+    package: "github.com/hashicorp/consul/agent/auto-config"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/blockingquery root mirror (pair with agent/blockingquery/**).
+    package: "github.com/hashicorp/consul/agent/blockingquery"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/cacheshim root mirror (pair with agent/cacheshim/**).
+    package: "github.com/hashicorp/consul/agent/cacheshim"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/checks root mirror (pair with agent/checks/**).
+    package: "github.com/hashicorp/consul/agent/checks"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/configentry root mirror (pair with agent/configentry/**).
+    package: "github.com/hashicorp/consul/agent/configentry"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/connect root mirror (pair with agent/connect/**); agent-side
+      Connect packages, distinct from the public connect/** SDK.
+    package: "github.com/hashicorp/consul/agent/connect"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/debug root mirror (pair with agent/debug/**).
+    package: "github.com/hashicorp/consul/agent/debug"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/dns root mirror (pair with agent/dns/**).
+    package: "github.com/hashicorp/consul/agent/dns"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/envoyextensions root mirror (pair with agent/envoyextensions/**).
+    package: "github.com/hashicorp/consul/agent/envoyextensions"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/exec root mirror (pair with agent/exec/**).
+    package: "github.com/hashicorp/consul/agent/exec"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/grpc-external root mirror (pair with agent/grpc-external/**).
+    package: "github.com/hashicorp/consul/agent/grpc-external"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/leafcert root mirror (pair with agent/leafcert/**).
+    package: "github.com/hashicorp/consul/agent/leafcert"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/local root mirror (pair with agent/local/**).
+    package: "github.com/hashicorp/consul/agent/local"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/log-drop root mirror (pair with agent/log-drop/**).
+    package: "github.com/hashicorp/consul/agent/log-drop"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/metadata root mirror (pair with agent/metadata/**).
+    package: "github.com/hashicorp/consul/agent/metadata"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/metrics root mirror (pair with agent/metrics/**).
+    package: "github.com/hashicorp/consul/agent/metrics"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/mock root mirror (pair with agent/mock/**).
+    package: "github.com/hashicorp/consul/agent/mock"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/netutil root mirror (pair with agent/netutil/**).
+    package: "github.com/hashicorp/consul/agent/netutil"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/pool root mirror (pair with agent/pool/**).
+    package: "github.com/hashicorp/consul/agent/pool"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/proxycfg root mirror (pair with agent/proxycfg/**); inherits the
+      same XDS isolation deny entry as the `/**` rule.
+    package: "github.com/hashicorp/consul/agent/proxycfg"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+        - "github.com/hashicorp/consul/agent/xds/**"
+
+  - description: >
+      agent/proxycfg-glue root mirror (pair with agent/proxycfg-glue/**).
+    package: "github.com/hashicorp/consul/agent/proxycfg-glue"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  # NOTE: agent/proxycfg-sources root mirror was deleted in Review #5 — the
+  # path does not exist as a Go package in inputs/go/1_hashicorp_consul.txt
+  # (only agent/proxycfg-sources/catalog and agent/proxycfg-sources/local do).
+  # The /** sibling above already covers the real subpackages.
+
+  - description: >
+      agent/router root mirror (pair with agent/router/**).
+    package: "github.com/hashicorp/consul/agent/router"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/routine-leak-checker root mirror (pair with
+      agent/routine-leak-checker/**).
+    package: "github.com/hashicorp/consul/agent/routine-leak-checker"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  # NOTE: agent/rpc root mirror was deleted in Review #5 — the path does not
+  # exist as a Go package in inputs/go/1_hashicorp_consul.txt (only
+  # agent/rpc/middleware, agent/rpc/operator, and agent/rpc/peering do). The
+  # /** sibling above already covers the real subpackages.
+
+  - description: >
+      agent/rpcclient root mirror (pair with agent/rpcclient/**).
+    package: "github.com/hashicorp/consul/agent/rpcclient"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/structs root mirror (pair with agent/structs/**); preserves the
+      neutral-shared-package guards (no agent/consul, proxycfg, or xds).
+    package: "github.com/hashicorp/consul/agent/structs"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/agent/proxycfg/**"
+        - "github.com/hashicorp/consul/agent/xds/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/submatview root mirror (pair with agent/submatview/**).
+    package: "github.com/hashicorp/consul/agent/submatview"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/systemd root mirror (pair with agent/systemd/**).
+    package: "github.com/hashicorp/consul/agent/systemd"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/token root mirror (pair with agent/token/**).
+    package: "github.com/hashicorp/consul/agent/token"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/uiserver root mirror (pair with agent/uiserver/**).
+    package: "github.com/hashicorp/consul/agent/uiserver"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/xds root mirror (pair with agent/xds/**).
+    package: "github.com/hashicorp/consul/agent/xds"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  # ---------------------------------------------------------------------------
+  # Layer 4 - Server / Consensus: must not import Layer 5
+  # ---------------------------------------------------------------------------
+  - description: >
+      The agent/consul server layer must not import command, api, connect, or
+      troubleshoot packages. The server is a library consumed by the agent
+      entrypoint; it must remain independent of the CLI and public API client.
+    package: "github.com/hashicorp/consul/agent/consul/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/consul root must match the same Layer 4 leaf constraints as
+      agent/consul/** (glob `/**` may not apply to the directory root import path).
+    package: "github.com/hashicorp/consul/agent/consul"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      agent/consul/state is the core state store and must not import any other
+      agent/consul sub-package (except agent/consul/stream) to prevent circular
+      dependencies inside the server layer.
+    package: "github.com/hashicorp/consul/agent/consul/state"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/fsm"
+        - "github.com/hashicorp/consul/agent/consul/discoverychain"
+        - "github.com/hashicorp/consul/agent/consul/prepared_query"
+        - "github.com/hashicorp/consul/agent/consul/gateways"
+        - "github.com/hashicorp/consul/agent/consul/usagemetrics"
+        - "github.com/hashicorp/consul/agent/consul/wanfed"
+        - "github.com/hashicorp/consul/agent/consul/reporting"
+
+  - description: >
+      agent/consul/fsm (Raft finite-state machine) must not import these other
+      agent/consul sub-packages (keeps the FSM layer acyclic w.r.t. the listed
+      server modules; it may import agent/consul/state and related store code as
+      required to apply Raft commands). Deny list mirrors agent/consul/state's
+      list above (including `reporting`) so the partial intra-server DAG is
+      symmetric. Other agent/consul/* peers are not encoded; rely on
+      `go build` / import-graph CI to catch new cycles.
+    package: "github.com/hashicorp/consul/agent/consul/fsm"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/discoverychain"
+        - "github.com/hashicorp/consul/agent/consul/prepared_query"
+        - "github.com/hashicorp/consul/agent/consul/gateways"
+        - "github.com/hashicorp/consul/agent/consul/usagemetrics"
+        - "github.com/hashicorp/consul/agent/consul/wanfed"
+        - "github.com/hashicorp/consul/agent/consul/reporting"
+
+  - description: >
+      agent/consul/discoverychain computes service routing graphs. It must not
+      import the state store directly; it receives data via function arguments
+      to keep it testable in isolation.
+    package: "github.com/hashicorp/consul/agent/consul/discoverychain"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/state"
+        - "github.com/hashicorp/consul/agent/consul/fsm"
+
+  # ---------------------------------------------------------------------------
+  # Layer 5 - API / CLI / Connect: leaf packages
+  # ---------------------------------------------------------------------------
+  - description: >
+      The api package is the public HTTP client library for Consul and must not
+      import any internal agent, server, or framework packages. External
+      consumers import this package; it must have no internal deps beyond
+      Foundation libraries.
+    package: "github.com/hashicorp/consul/api/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/envoyextensions/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      api root package must match the same leaf dependency constraints as
+      subpackages (glob `/**` may not apply to the directory root import path).
+    package: "github.com/hashicorp/consul/api"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/envoyextensions/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/connect/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      CLI command packages may import api, agent (entrypoints embed the agent),
+      and troubleshoot/** libraries (e.g. command/troubleshoot wraps the
+      troubleshoot SDK). They must NOT bypass the public boundary into the
+      server, internal framework primitives, or envoy extension primitives:
+      agent/consul/** is server-internal; internal/** is the Layer-2
+      framework; envoyextensions/** is Layer-2 Envoy primitives. CLI features
+      that need raw raft / storage / controller / envoy types must be
+      refactored to use the public RPC contract (or a single explicit
+      exception-scoped subpackage must be carved out and excepted).
+    package: "github.com/hashicorp/consul/command/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/envoyextensions/**"
+
+  - description: >
+      command root package must match the same dependency guard as subpackages
+      (glob `/**` may not apply to the directory root import path).
+    package: "github.com/hashicorp/consul/command"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/consul/**"
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/envoyextensions/**"
+
+  - description: >
+      connect and connect/certgen/proxy provide the Connect SDK used by
+      applications. As a leaf client-facing SDK (mirroring api/** posture),
+      they must not import the agent (any subtree), the server, internal
+      framework packages, envoyextensions, command, api, or troubleshoot.
+    package: "github.com/hashicorp/consul/connect/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/envoyextensions/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      connect root package must match the same leaf SDK constraints as
+      subpackages (glob `/**` may not apply to the directory root import path).
+    package: "github.com/hashicorp/consul/connect"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/envoyextensions/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+        - "github.com/hashicorp/consul/troubleshoot/**"
+
+  - description: >
+      troubleshoot utilities inspect live proxy and port state. As a Layer-5
+      leaf SDK consumed by humans and other tools, it must remain isolated
+      from the agent (any subtree), the server, internal framework packages,
+      envoyextensions, command, and api. This brings troubleshoot/** to the
+      same strict-leaf posture as connect/** and api/**.
+    package: "github.com/hashicorp/consul/troubleshoot/**"
+    shouldNotDependsOn:
+      internal:
+        - "github.com/hashicorp/consul/agent/**"
+        - "github.com/hashicorp/consul/internal/**"
+        - "github.com/hashicorp/consul/envoyextensions/**"
+        - "github.com/hashicorp/consul/command/**"
+        - "github.com/hashicorp/consul/api/**"
+
+# =============================================================================
+# CONTENTS RULES
+#
+# arch-go (both fdaines/arch-go v1.5.4 and arch-go/arch-go v2) requires FLAT
+# boolean keys at the rule level: `shouldNotContainInterfaces: true` /
+# `shouldOnlyContainStructs: true`. Earlier revisions of this file used a
+# nested-list shape (`shouldNotContainAnyOf:` / `shouldOnlyContain:`) which
+# arch-go silently dropped — the rules then PASSed vacuously. The flat keys
+# below produce real, non-empty checks.
+#
+# Review #5 also removed the agent/consul/state `shouldNotContainInterfaces`
+# rule. That ban contradicted the agent/consul/state Store naming rule
+# (`structsThatImplement: "Store"` requires a Store interface to exist in the
+# package). Eliminating one was the only way to stop the two rules from
+# silently negating each other; the naming convention is the more useful
+# guarantee, so the ban was dropped. Re-introduce only with a precise
+# predicate (e.g. forbid only *exported* interfaces) once arch-go supports it.
+# =============================================================================
+contentsRules:
+
+  - description: >
+      Generated private protobuf packages should contain only struct
+      definitions (and their generated method sets). Hand-written interfaces
+      or free functions in proto/** are policy violations. BRITTLENESS:
+      protoc / protoc-gen-go upgrades may emit helpers that arch-go
+      reclassifies as functions, flipping CI to FAIL with no architectural
+      change. Pin generator versions in tools.go / go.mod and regenerate
+      locally before bumping.
+    package: "github.com/hashicorp/consul/proto/**"
+    shouldOnlyContainStructs: true
+
+  - description: >
+      Public generated protobuf packages mirror the proto/** policy: structs
+      and their generated method sets only. Same BRITTLENESS caveat as
+      proto/** applies on protoc / plugin upgrades.
+    package: "github.com/hashicorp/consul/proto-public/**"
+    shouldOnlyContainStructs: true
+
+  - description: >
+      grpcmocks packages contain mock structs and their generated methods only
+      (mockgen output). Hand-written interfaces or free functions are not
+      permitted. This is structural hygiene only (not part of the five-layer
+      dependency model; see header exclusion list). BRITTLENESS: mockgen /
+      mockery upgrades may emit constructor helpers or package-level vars
+      that arch-go classifies as functions; pin the mock generator and
+      regenerate before bumping.
+    package: "github.com/hashicorp/consul/grpcmocks/**"
+    shouldOnlyContainStructs: true
+
+# =============================================================================
+# NAMING RULES
+# =============================================================================
+namingRules:
+
+  - description: >
+      All types in agent/consul/state that represent a read/write handle to a
+      named data collection must be suffixed with 'Store' to distinguish them
+      from plain data structs and to maintain naming consistency across the
+      state layer.
+    package: "github.com/hashicorp/consul/agent/consul/state"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "Store"
+      shouldHaveSimpleNameEndingWith: "Store"
+
+  - description: >
+      Types inside internal/storage that implement the storage backend interface
+      must be suffixed with 'Backend' to clearly communicate their role as a
+      pluggable persistence layer (e.g., InmemBackend, RaftBackend).
+    package: "github.com/hashicorp/consul/internal/storage/**"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "Backend"
+      shouldHaveSimpleNameEndingWith: "Backend"
+
+  - description: >
+      Resolver types inside agent/grpc-internal/resolver that satisfy the
+      standard Resolver contract must be suffixed with 'Resolver' for
+      discoverability.
+    package: "github.com/hashicorp/consul/agent/grpc-internal/resolver"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "Resolver"
+      shouldHaveSimpleNameEndingWith: "Resolver"
+
+  - description: >
+      CA provider implementations inside agent/connect/ca must be suffixed
+      with 'Provider' to match the CAProvider interface naming convention used
+      throughout the Connect CA subsystem.
+    package: "github.com/hashicorp/consul/agent/connect/ca"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "Provider"
+      shouldHaveSimpleNameEndingWith: "Provider"
+
+  - description: >
+      Controller reconciler implementations inside internal/controller packages
+      must be suffixed with 'Reconciler' to align with the framework's
+      Reconciler interface and make implementors easy to identify.
+    package: "github.com/hashicorp/consul/internal/controller/**"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "Reconciler"
+      shouldHaveSimpleNameEndingWith: "Reconciler"
+
+  - description: >
+      Server-side controller reconciler implementations in agent/consul/controller
+      must follow the same naming convention as the framework reconcilers in
+      internal/controller/**. The internal/controller/** rule above does not
+      reach this server-layer sibling (different package prefix); a parallel
+      rule keeps server-side reconciler names consistent with the framework
+      contract.
+    package: "github.com/hashicorp/consul/agent/consul/controller"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "Reconciler"
+      shouldHaveSimpleNameEndingWith: "Reconciler"
+
+  - description: >
+      Rate limiter implementations in agent/consul/rate must be suffixed with
+      'Limiter' to follow the established pattern for rate-limiting types in
+      the server layer.
+    package: "github.com/hashicorp/consul/agent/consul/rate"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "RequestLimiter"
+      shouldHaveSimpleNameEndingWith: "Limiter"
+
+  - description: >
+      Rate limiter implementations in agent/consul/multilimiter must be
+      suffixed with 'Limiter'. The RequestLimiter interface lives in
+      agent/consul/rate (not in this package), so the per-package
+      interfaceImplementationNamingRule "structsThatImplement: RequestLimiter"
+      does not resolve in this scope. Use the wildcard "*Limiter" instead so
+      the rule keys on a name pattern (any interface ending in Limiter)
+      defined in or imported by this package, instead of a same-package
+      interface lookup that would otherwise degrade to a no-op.
+    package: "github.com/hashicorp/consul/agent/consul/multilimiter"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "*Limiter"
+      shouldHaveSimpleNameEndingWith: "Limiter"
+
+# =============================================================================
+# FUNCTIONS RULES
+# =============================================================================
+functionsRules:
+
+  - description: >
+      Functions in agent/consul/state (the core state store) must return at most
+      two values. State store accessors returning more than two values indicate
+      overly complex signatures that should be decomposed into separate methods
+      or structs, improving readability and testability.
+    package: "github.com/hashicorp/consul/agent/consul/state"
+    maxReturnValues: 2
+
+  - description: >
+      Functions in agent/consul/discoverychain must return at most two values.
+      Discovery chain computation functions that return multiple results should
+      encapsulate them in a result struct, keeping function signatures clean.
+    package: "github.com/hashicorp/consul/agent/consul/discoverychain"
+    maxReturnValues: 2
+
+  - description: >
+      lib utility functions should prefer small signatures; up to three return
+      values are allowed for idiomatic (T, U, error) or similar helpers.
+    package: "github.com/hashicorp/consul/lib/**"
+    maxReturnValues: 3
+
+  - description: >
+      lib root package return-signature guard (pair with lib/**). The `/**`
+      glob may not match the directory root import path per the generator
+      contract; this duplicate keeps maxReturnValues enforced on `lib`.
+    package: "github.com/hashicorp/consul/lib"
+    maxReturnValues: 3
+
+  - description: >
+      internal/storage backend functions should prefer small signatures; up to
+      three return values are allowed where (value, auxiliary, error) is clearer
+      than a result struct.
+    package: "github.com/hashicorp/consul/internal/storage/**"
+    maxReturnValues: 3
+
+  - description: >
+      internal/storage root package return-signature guard (pair with
+      internal/storage/**). The `/**` glob may not match the directory root
+      import path per the generator contract; this duplicate keeps
+      maxReturnValues enforced on `internal/storage`.
+    package: "github.com/hashicorp/consul/internal/storage"
+    maxReturnValues: 3
