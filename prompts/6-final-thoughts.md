@@ -192,9 +192,9 @@ State the ship / do-not-ship decision and the caveats to add to the Javadoc head
 
 ## Relationship to the Rest of the Loop
 
-- `1-*.md` through `3-*.md`: rule generation / compilation fixes / adversarial review. Feed into the first rule file.
-- `4-analyze-java.md`: the iterative triage loop. Runs until `Results: 0 mapping error`.
-- **`5-final-thought.md` (this prompt)**: runs exactly once, after the loop terminates. Produces `final-thoughts-by-[Reviewer].md`.
+- `1-*.md` through `4-*.md`: rule generation / compilation fixes / adversarial review. Feed into the first rule file.
+- `5-analyze-java.md`: the iterative triage loop. Runs until `Results: 0 mapping error`.
+- **`6-final-thought.md` (this prompt)**: runs exactly once, after the loop terminates. Produces `final-thoughts-by-[Reviewer].md`.
 
 This is the last document in the chain. Its readers will be future
 maintainers, PRs reviewers, and anyone who wonders later whether the

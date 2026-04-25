@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.archunit</groupId>
+    <artifactId>spring-framework-archunit</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <name>Spring Framework ArchUnit Enforcement Tests</name>
+    <description>
+        Standalone ArchUnit test suite enforcing the documented Spring Framework
+        layer hierarchy. Scans compiled class files from each Gradle module's
+        build output directory and verifies inter-layer and intra-module dependency rules.
+    </description>
+
+    <properties>
+        <java.version>17</java.version>
+        <maven.compiler.source>${java.version}</maven.compiler.source>
+        <maven.compiler.target>${java.version}</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <!-- Dependency versions -->
+        <archunit.version>1.3.0</archunit.version>
+        <junit.jupiter.version>5.10.2</junit.jupiter.version>
+    </properties>
+
+    <dependencies>
+        <!-- ArchUnit JUnit 5 integration -->
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <version>${archunit.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- JUnit 5 engine (required to execute @ArchTest rules) -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <version>${junit.jupiter.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- JUnit 5 API -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-api</artifactId>
+            <version>${junit.jupiter.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <!--
+            Points the test source root directly at the current directory so that
+            ArchitectureEnforcementTest.java (located alongside this pom.xml) is
+            picked up without requiring a standard Maven src/test/java layout.
+        -->
+        <testSourceDirectory>.</testSourceDirectory>
+
+        <plugins>
+            <!-- Compiler plugin: ensures Java 17 compatibility -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+                <configuration>
+                    <source>${java.version}</source>
+                    <target>${java.version}</target>
+                    <encoding>UTF-8</encoding>
+                </configuration>
+            </plugin>
+
+            <!--
+                Surefire plugin: adds each Spring Framework Gradle module's compiled
+                class output directory to the test classpath so that ArchUnit's
+                ClassFileImporter (invoked by @AnalyzeClasses) can locate and scan
+                all org.springframework.* bytecode.
+
+                Paths are relative to this pom.xml location:
+                  outputs/spring-framework/sonnet-4-6/ -> ../../../spring-framework/<module>/build/classes/java/main
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <includes>
+                        <include>**/ArchitectureEnforcementTest.java</include>
+                    </includes>
+                    <additionalClasspathElements>
+                        <!-- Core Container modules -->
+                        <additionalClasspathElement>../../../spring-framework/spring-core/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-framework/spring-beans/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-framework/spring-context/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-framework/spring-context-support/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-framework/spring-expression/build/classes/java/main</additionalClasspathElement>
+
+                        <!-- AOP modules -->
+                        <additionalClasspathElement>../../../spring-framework/spring-aop/build/classes/java/main</additionalClasspathElement>
+
+                        <!-- Data Access / Integration modules -->
+                        <additionalClasspathElement>../../../spring-framework/spring-tx/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-framework/spring-jdbc/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-framework/spring-orm/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-framework/spring-oxm/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-framework/spring-r2dbc/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-framework/spring-jms/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-framework/spring-jcl/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-framework/spring-messaging/build/classes/java/main</additionalClasspathElement>
+
+                        <!-- Web modules -->
+                        <additionalClasspathElement>../../../spring-framework/spring-web/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-framework/spring-webmvc/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-framework/spring-webflux/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-framework/spring-websocket/build/classes/java/main</additionalClasspathElement>
+
+                        <!-- Miscellaneous modules -->
+                        <additionalClasspathElement>../../../spring-framework/spring-instrument/build/classes/java/main</additionalClasspathElement>
+                        <additionalClasspathElement>../../../spring-framework/spring-aspects/build/classes/java/main</additionalClasspathElement>
+
+                        <!-- Test support module (scanned but rules exclude test classes from production checks) -->
+                        <additionalClasspathElement>../../../spring-framework/spring-test/build/classes/java/main</additionalClasspathElement>
+                    </additionalClasspathElements>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
