@@ -1,0 +1,122 @@
+# arch-go Architecture Enforcement Configuration for Kubernetes
+# Model: gemini3-flash
+# 
+# This configuration enforces the architectural integrity of the Kubernetes codebase,
+# ensuring clear separation between the API definitions, core logic components,
+# and infrastructure layers.
+#
+# Core Layer Hierarchy (Bottom to Top):
+# 1. Utilities & Features (pkg/util/**, pkg/features/**)
+#    - Base shared logic and feature gate definitions.
+# 2. API Definitions & Schemas (pkg/api/**, pkg/apis/**)
+#    - Core domain models, API versions, and internal types.
+# 3. Registry & Volume Infrastructure (pkg/registry/**, pkg/volume/**)
+#    - Persistence logic and storage abstractions.
+# 4. Component Business Logic (pkg/kubeapiserver/**, pkg/controller/**, pkg/scheduler/**, etc.)
+#    - The "Service" layer containing the core logic for each Kubernetes component.
+# 5. Command Entrypoints (cmd/**)
+#    - Executables and CLI logic for various Kubernetes binaries.
+#
+# Excluded Packages:
+# - k8s.io/kubernetes/pkg/generated/**: Contains automatically generated clients, listers, and informers.
+# - k8s.io/kubernetes/test/**: Comprehensive suite of unit, integration, and E2E tests.
+# - k8s.io/kubernetes/vendor/**: Third-party dependencies managed via Go modules.
+# - k8s.io/kubernetes/third_party/**: External code integrated into the repository.
+# - k8s.io/kubernetes/hack/**: Development and build-time shell scripts.
+# - k8s.io/kubernetes/build/**: Build configuration and scripts.
+# - k8s.io/kubernetes/staging/**: (Implicitly handled) Staging area for shared components.
+
+version: 1
+threshold:
+  compliance: 100
+  coverage: 50
+
+# =============================================================================
+# Dependencies Rules
+# =============================================================================
+dependenciesRules:
+  - description: "Utility packages must be foundational and never depend on high-level API or component logic."
+    package: "k8s.io/kubernetes/pkg/util/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/api/**"
+        - "k8s.io/kubernetes/pkg/apis/**"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/cmd/**"
+
+  - description: "API definitions should be self-contained; they must not import component-specific business logic."
+    package: "k8s.io/kubernetes/pkg/apis/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+
+  - description: "Component logic packages should only depend on lower layers (API, Registry, Util) and never on entrypoint commands."
+    package: "k8s.io/kubernetes/pkg/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/cmd/**"
+
+  - description: "The Scheduler must remain independent of Node-side components like Kubelet and Proxy."
+    package: "k8s.io/kubernetes/pkg/scheduler/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+
+  - description: "The Kubelet should not depend on the Scheduler or API Server implementation logic."
+    package: "k8s.io/kubernetes/pkg/kubelet/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+
+  - description: "Prevent circular dependencies between parallel controllers: Job controller should not depend on CronJob controller."
+    package: "k8s.io/kubernetes/pkg/controller/job/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller/cronjob/**"
+
+  - description: "Infrastructure layers like Proxy should not depend on Controller management logic."
+    package: "k8s.io/kubernetes/pkg/proxy/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller/**"
+
+# =============================================================================
+# Contents Rules
+# =============================================================================
+contentsRules:
+  - description: "API packages should focus on type definitions and avoid containing large implementation functions."
+    package: "k8s.io/kubernetes/pkg/apis/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller/**"
+
+# =============================================================================
+# Naming Rules
+# =============================================================================
+namingRules:
+  - description: "All controllers in the controller package should follow the standard naming convention."
+    selector: "k8s.io/kubernetes/pkg/controller/**"
+    shouldHaveNameEndingWith: "Controller"
+
+  - description: "Registry implementations should be clearly identified as storage or registry types."
+    selector: "k8s.io/kubernetes/pkg/registry/**"
+    shouldHaveNameEndingWith: "Registry"
+
+# =============================================================================
+# Functions Rules
+# =============================================================================
+functionsRules:
+  - description: "Keep API functions concise to ensure they only handle data transformation and validation."
+    package: "k8s.io/kubernetes/pkg/apis/**"
+    maxLines: 80
+    maxParameters: 6
+
+  - description: "Limit complexity of common utility functions to maintain readability."
+    package: "k8s.io/kubernetes/pkg/util/**"
+    maxLines: 100
+    maxParameters: 5

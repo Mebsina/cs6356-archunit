@@ -1,0 +1,2367 @@
+# =============================================================================
+# arch-go.yml - Kubernetes Architectural Constraint Rules
+# =============================================================================
+#
+# ARCHITECTURE LAYER HIERARCHY (bottom to top, dependencies point downward)
+#
+#   Layer 6 - CLI / Entry Points (cmd/**)
+#     Binary entry points: kube-apiserver, kubelet, kube-proxy, kube-scheduler,
+#     kube-controller-manager, cloud-controller-manager, kubectl,
+#     kubectl-convert, kubeadm. May depend on any internal layer. Nothing
+#     depends on cmd. Each binary tree must NOT import sibling-binary internals
+#     (separate-binary deployability invariant).
+#
+#   Layer 5 - Control Plane (pkg/controlplane/**)
+#     Assembles API server and reconcilers. Depends on API, kubeapiserver,
+#     controller, and scheduler layers. Must not depend on node-side code
+#     (kubelet, proxy).
+#
+#   Layer 4 - Component Packages
+#     - API Server Support  (pkg/kubeapiserver/**)
+#     - Controller Manager  (pkg/controller/**)
+#     - Scheduler           (pkg/scheduler/**)
+#     - Kubelet             (pkg/kubelet/**)
+#     - Kube-Proxy          (pkg/proxy/**)
+#     These are parallel component layers. They form a fully symmetric
+#     non-coupling lattice: no Layer-4 sibling may import any other Layer-4
+#     sibling, and none may import Layer-5 controlplane.
+#
+#   Layer 3 - Domain / Registry (pkg/registry/**)
+#     Storage-backed resource handlers. Depends on APIs and util. Must not
+#     depend on component layers (controller, kubelet, proxy, scheduler,
+#     kubeapiserver) or control plane.
+#
+#   Layer 2 - API Types (pkg/apis/** and pkg/api/**)
+#     Internal Kubernetes API object type definitions and conversion/validation
+#     logic. Foundational; must not import higher layers. The two Layer-2
+#     trees are peers and must not depend on each other (parallel-peer rule).
+#
+#   Layer 1 - Shared Utilities (pkg/util/**)
+#     Low-level, reusable helpers (iptables, hash, env, etc.). Must not import
+#     any other pkg/** layer above it (including api, apis, registry,
+#     leaf-component subsystems such as volume, credentialprovider, kubectl,
+#     printers, security, securitycontext).
+#
+# =============================================================================
+# SCOPE OF ANALYSIS
+#
+#   arch-go scans every Go package in the module declared by `go.mod` (which
+#   must be `k8s.io/kubernetes` for these globs to match). The Makefile
+#   `arch-check` target asserts the module identity via `go list -m` and
+#   refuses to run against the wrong module; it also fails when the report's
+#   COVERAGE RATE drops below a configured floor (see review #2 [F1]) and
+#   propagates arch-go's exit code via bash `pipefail` (see review #3 [F1]).
+#
+#   There is no per-package exclusion mechanism in this YAML and arch-go
+#   v1.5.x does not support brace expansion in `package:` globs.
+#
+#   Review #5 [F2] / [F4] (option B applied): the per-sub-package fan-outs
+#   for pkg/controller, pkg/scheduler, pkg/registry, and pkg/volume were
+#   reverted in favour of broad globs (`pkg/<X>/**`) plus their bare-path
+#   sibling (`pkg/<X>`). The fan-outs had two systemic defects:
+#
+#     1. Each `pkg/<X>/<Y>/**` rule silently exempted the bare canonical
+#        sub-package `pkg/<X>/<Y>` (where the canonical *Controller /
+#        Plugin / Storage / Volume struct lives) because arch-go's `**`
+#        glob does not match the bare prefix (review #5 [F2]).
+#     2. Many of the predictive sub-tree entries targeted packages that
+#        do not exist in the supplied snapshot (e.g., pkg/registry/core,
+#        pkg/scheduler/apis), making them vacuous.
+#
+#   The reverted broad globs accept four expected false-positive sources
+#   (cross-layer test helpers): pkg/scheduler/testing, pkg/controller/testutil,
+#   pkg/registry/registrytest, pkg/volume/testing. Track these per review
+#   #5 [F2] option (B) — either move them to internal/<helper> upstream or
+#   carve narrow per-helper exceptions once the empirical run reveals the
+#   actual cross-layer imports.
+#
+#   The pkg/api fan-out (review #4 [F5]) was originally retained but
+#   review #7 [F3] / [F5] collapsed it back to a single broad `pkg/api/**`
+#   rule. The 20-rule fan-out had two issues:
+#
+#     1. It deliberately omitted pkg/api/testing from any subject glob,
+#        leaving pkg/api/testing as the ONLY first-party Layer-2 helper
+#        with zero subject coverage — its Layer-2 → upper-layer imports
+#        were completely unconstrained (review #7 [F3]).
+#     2. The 20 nearly-identical rules were a maintenance burden
+#        disproportionate to the benefit; adding the review #7 [F2]
+#        leaf-component sweep would have required 21 × 17 copy-paste
+#        edits (review #7 [F5]).
+#
+#   The collapsed broad rule treats pkg/api/testing as a documented
+#   expected-false-positive source under the broad glob, consistent with
+#   how the other four cross-layer test helpers are handled.
+#
+#   IMPORTANT — bare-package coverage on BOTH SUBJECT and OBJECT sides:
+#   arch-go's `**` glob requires at least one path segment after the prefix,
+#   so `pkg/scheduler/**` does NOT match the bare `pkg/scheduler` package
+#   (where the canonical `Scheduler` struct and main `Run` loop live).
+#
+#   Review #6 [F2] / [F3] / [F4] / [F5]: the bare-path insight is now
+#   applied symmetrically to BOTH the `package:` (subject) field AND the
+#   `internal:` (object) field of every dependency rule. Every deny-list
+#   entry of the form `<X>/**` is paired with a sibling entry `<X>`
+#   wherever `<X>` is a real Go package in the module, so an import of
+#   bare `pkg/scheduler` / `pkg/kubelet` / `pkg/proxy` / `pkg/controller`
+#   / `pkg/registry` / `pkg/controlplane` / `pkg/kubeapiserver` /
+#   `pkg/volume` is no longer invisible to the deny lists.
+#
+#   The convention applies to:
+#     - subject side: every `<X>/**` rule has a sibling `<X>` rule
+#       (review #3 [F2], [F11]; review #4 [F2] for kubelet/proxy/
+#       kubeapiserver/controlplane; review #5 [F3] for all 10 cmd
+#       binaries; review #5 [F5] for pkg/kubelet/container and
+#       pkg/proxy/util intra-layer fences).
+#     - object side: every `<X>/**` deny entry has a sibling `<X>`
+#       deny entry where `<X>` is a real Go package (review #6 [F2]).
+#
+#   The same insight applies to naming rules over kubelet manager
+#   sub-packages: the canonical interface declaration (e.g.,
+#   `type VolumeManager interface`, `type ContainerManager interface`,
+#   the per-cm-sub-manager `type Manager interface`) and its primary
+#   implementing struct live in the BARE sub-package, not in any auxiliary
+#   sub-sub-package. Review #4 [F3] therefore scopes each kubelet manager
+#   naming rule to the bare sub-package (omitting the `/**` suffix) so the
+#   canonical implementer is matched.
+#
+#   First-party paths covered by NO `package:` glob below (i.e., violations
+#   in these paths are invisible to arch-go):
+#
+#     # vendored / generated / non-source paths (intentional)
+#     - vendor/**, third_party/**         (vendored / forked dependencies)
+#     - test/**                            (integration / e2e suites)
+#     - pkg/generated/**                   (generated openapi)
+#     - hack/**, build/**, cluster/**      (tooling and packaging)
+#
+#     # build/release tooling cmd binaries (intentionally permissive — these
+#     # are docs/lint/codegen helpers, not deployable Kubernetes binaries):
+#     - cmd/clicheck, cmd/dependencycheck, cmd/dependencyverifier,
+#       cmd/fieldnamedocscheck, cmd/gendocs, cmd/genfeaturegates,
+#       cmd/genkubedocs, cmd/genman, cmd/genswaggertypedocs, cmd/genutils,
+#       cmd/genyaml, cmd/gotemplate, cmd/import-boss, cmd/importverifier,
+#       cmd/preferredimports, cmd/prune-junit-xml
+#
+#     # leaf utility packages — review #7 [F4] added dedicated leaf-
+#     # isolation rules for the previously unconstrained set so they no
+#     # longer rely on the broad pkg/** -> cmd/** catch-all (which only
+#     # forbids cmd-imports, not component / control-plane back-imports):
+#     #   pkg/auth/** (covers pkg/auth/nodeidentifier),
+#     #   pkg/capabilities, pkg/certauthorization,
+#     #   pkg/client/** (covers pkg/client/conditions, pkg/client/tests),
+#     #   pkg/cluster/ports, pkg/features, pkg/fieldpath, pkg/routes,
+#     #   pkg/windows/service
+#     # Review #8 [F2] propagates the OBJECT-side counterpart of these nine
+#     # leaves into the pkg/util/**, pkg/apis/**, and pkg/api/** deny lists
+#     # (plus plugin/** for util) so util / apis / api may not back-import
+#     # them, mirroring the leaf-component subsystem treatment.
+#
+#   Review #8 [F3]: the plugin/** rule's deny list was extended to include
+#   pkg/kubeapiserver and pkg/kubeapiserver/**. The plugin/** rule's own
+#   description states that plugins are "loaded by kubeapiserver/admission"
+#   — so plugin → kubeapiserver is the inverse of the documented loader
+#   direction and would create an import cycle. Every other leaf rule
+#   (security, securitycontext, serviceaccount, probe, kubectl, printers,
+#   kubemark, credentialprovider, volume) already denied kubeapiserver;
+#   plugin/** was the lone outlier despite having the strongest documented
+#   coupling.
+#
+#   Review #8 [F4]: the pkg/proxy/util / pkg/proxy/util/** intra-layer
+#   fences were extended to deny kubemark, metaproxier, and runner in
+#   addition to the four production backends. These three are unambiguous
+#   backend / orchestrator / fake packages that the implementation-
+#   agnostic util layer must not import. The borderline conntrack /
+#   healthcheck / metrics packages are deferred until the empirical run
+#   reveals legitimate util-side use.
+#
+#   Review #8 [F5]: the pkg/kubelet/container / pkg/kubelet/container/**
+#   intra-layer fence's three listed directions (server, config,
+#   volumemanager) remain as documented architectural intent; the
+#   descriptions now credit Go's import-cycle prohibition as the actual
+#   enforcement mechanism for the other ~25 above-container kubelet sub-
+#   packages that consume container.Runtime directly.
+#
+# =============================================================================
+
+description: >
+  Enforces the Kubernetes component architecture. The
+  https://kubernetes.io/docs/concepts/overview/components/ documentation
+  specifies the cluster topology (control-plane vs. node) and the
+  separate-binary deployability of kube-apiserver, kube-scheduler,
+  kube-controller-manager, cloud-controller-manager, kubelet, kube-proxy,
+  kubectl, and kubeadm. This YAML encodes that separate-binary invariant
+  as a Layer-4 non-coupling lattice across controller / scheduler / kubelet /
+  proxy / kubeapiserver — a design decision in the spirit of the documented
+  topology rather than a direct documentation citation. The lattice is
+  enforced via broad `pkg/<X>/**` rules paired with bare-path siblings on
+  `pkg/<X>` (review #3 [F2] / [F11], review #4 [F2], review #5 [F2]),
+  so canonical bare-path declarations such as
+  pkg/scheduler/scheduler.go, pkg/kubelet/kubelet.go, pkg/proxy/types.go,
+  pkg/controller/deployment/deployment_controller.go,
+  pkg/scheduler/framework/types.go, and pkg/volume/csi/csi_plugin.go are
+  ALL inside the lattice's match set — not silently exempted by the prior
+  per-sub-package fan-out approach. Review #6 [F2] / [F3] / [F4] / [F5]:
+  the same bare + `/**` pair convention is now applied symmetrically to
+  the OBJECT side (the `internal:` deny lists) of every dependency rule,
+  closing the gap where imports of bare `pkg/scheduler` / `pkg/kubelet` /
+  `pkg/proxy` / `pkg/controller` / `pkg/registry` / `pkg/controlplane` /
+  `pkg/kubeapiserver` / `pkg/volume` (and their canonical sub-package
+  bare paths under intra-layer fences) were silently exempt from the
+  Layer-4 / Layer-3 / Layer-5 / leaf-isolation / cmd-side bans.
+  Layer-3 (registry) is blocked from every Layer-4 sibling and Layer-5
+  (controlplane). Cmd-side rules block cross-binary coupling and now use
+  the same bare + `/**` pair convention for all 10 cmd binaries
+  (review #5 [F3]) so the bare main.go entry points (cmd/kubelet/main.go,
+  cmd/kubectl, cmd/cloud-controller-manager, cmd/kubectl-convert, etc.)
+  cannot silently back-import sibling-binary internals: kubectl and
+  kubectl-convert are client-only; kubeadm uses generated manifests and
+  clientset only; kube-apiserver/cloud-controller-manager/
+  kube-controller-manager/kube-scheduler/kube-proxy/kubelet binaries may
+  not import each other's pkg/<sibling> bare or pkg/<sibling>/**
+  subtrees and may not back-import controlplane or kubeapiserver assembly
+  (review #3 [F3] makes the cmd/kube-apiserver fence symmetric with its
+  peers; review #6 [F2] adds bare-path companions to every cmd-side deny
+  list). cmd/kubemark is the only first-party deployable binary that
+  legitimately imports parts of pkg/kubelet/** and pkg/proxy/kubemark to
+  fake a kubelet/kube-proxy — its rule denies the production kube-proxy
+  backends (iptables, ipvs, nftables, winkernel) per-backend rather than
+  using the broad pkg/proxy/** ban that would mis-fire on pkg/proxy/kubemark
+  (review #3 [F4], review #4 [F7]); review #6 [F5] adds bare-path
+  companions for each backend so a direct import of bare pkg/proxy/iptables
+  (where the canonical iptables Proxier struct lives) is also denied.
+  Cross-layer test helpers (pkg/scheduler/testing, pkg/controller/testutil,
+  pkg/registry/registrytest, pkg/volume/testing, pkg/api/testing) are
+  documented expected-false-positive sources under the broad globs — track
+  them per review #5 [F2] option (B) and either move to internal/<helper>
+  upstream or carve per-helper exceptions once the empirical run reveals
+  their actual cross-layer imports. Review #7 [F3] / [F5]: the 20-rule
+  pkg/api per-sub-package fan-out (review #4 [F5]) was collapsed into a
+  single broad `pkg/api/**` rule. The fan-out had deliberately omitted
+  pkg/api/testing from every subject glob — the only first-party Layer-2
+  helper whose Layer-2 → upper-layer imports were completely
+  unconstrained — and the 20 nearly-identical rules were a maintenance
+  burden disproportionate to the benefit. The collapsed broad rule brings
+  pkg/api/testing into scope as an expected-false-positive source.
+  Review #7 [F2]: leaf-component subsystems (volume, credentialprovider,
+  kubectl, kubemark, printers, probe, security, securitycontext,
+  serviceaccount, plugin) added to the deny lists of the pkg/apis/** and
+  the new broad pkg/api/** rule, mirroring the util-layer rule's complete
+  leaf-isolation shape — Layer-2 sits below the leaf-component subsystems
+  in the import DAG and must not back-import them any more than util must.
+  Review #7 [F4]: nine cross-cutting leaf packages (pkg/auth/**,
+  pkg/capabilities, pkg/certauthorization, pkg/client/**,
+  pkg/cluster/ports, pkg/features, pkg/fieldpath, pkg/routes,
+  pkg/windows/service) that were previously documented as "covered only
+  by the broad pkg/** -> cmd/** catch-all" each now have a dedicated
+  leaf-isolation rule, because the catch-all forbids only cmd-imports
+  and not component / control-plane back-imports.
+  Review #8 [F2]: the OBJECT-side counterpart of review #7 [F4] is now
+  propagated to the pkg/util/**, pkg/apis/**, and pkg/api/** deny lists —
+  the nine cross-cutting leaves are added so util / apis / api may not
+  back-import them (mirroring the leaf-component subsystem treatment).
+  plugin/** is also added to the pkg/util/** deny list (was missing from
+  util-layer but already present in apis / api).
+  Review #8 [F3]: the plugin/** deny list now denies pkg/kubeapiserver
+  and pkg/kubeapiserver/** to match the round's documented loaded-by
+  relationship (kubeapiserver/admission imports plugins, so plugins must
+  not back-import kubeapiserver) and to mirror the every-other-leaf
+  pattern.
+  Review #8 [F4]: pkg/proxy/util / pkg/proxy/util/** intra-layer fence
+  now denies kubemark, metaproxier, and runner in addition to the four
+  production backends (iptables, ipvs, nftables, winkernel); the
+  borderline conntrack / healthcheck / metrics packages are deferred
+  until the empirical run reveals legitimate util-side use.
+  Review #8 [F5]: the pkg/kubelet/container / pkg/kubelet/container/**
+  intra-layer fence's three listed directions (server, config,
+  volumemanager) remain as documented architectural intent; the
+  description now credits Go's import-cycle prohibition as the actual
+  enforcement mechanism for the other ~25 above-container kubelet sub-
+  packages that consume container.Runtime directly.
+  The intra-layer fences for pkg/kubelet/container
+  and pkg/proxy/util now also use the bare + `/**` pair on both sides
+  (review #5 [F5] subject side, review #6 [F4] object side) so a direct
+  import of bare pkg/kubelet/server (canonical HTTP server) or bare
+  pkg/proxy/iptables (canonical iptables Proxier) is also denied. The
+  vacuous pkg/kubectl/** rule was removed (review #6 [F6]) because the
+  package list contains only the bare pkg/kubectl compatibility shim;
+  re-add a /** rule when in-tree kubectl sub-packages are reintroduced
+  upstream. Naming rules apply interface-scoped suffix conventions to
+  Controller/Manager/Proxier implementations; the registry `Storage`
+  naming rule was removed in review #4 [F4] because the upstream
+  convention uses suffix `REST` for individual handlers and `Storage`
+  only for the multiplexer aggregator, which arch-go's single-suffix
+  matcher cannot express. arch-go's simple-name interface resolution may
+  produce false positives where the same simple interface name is reused
+  across sub-packages — kubelet manager rules are therefore narrowed to
+  a single bare sub-package each, matching where the canonical interface
+  and its primary implementer live (review #2 [F7], extended in review #3
+  [F8] for the cm sub-managers, switched to bare-path scope in review #4
+  [F3]).
+
+# =============================================================================
+# DEPENDENCY RULES
+# =============================================================================
+dependenciesRules:
+
+  # ---------------------------------------------------------------------------
+  # Layer 1 - Shared Utilities must not import higher pkg layers
+  # ---------------------------------------------------------------------------
+  - description: >
+      Shared utility packages (pkg/util/**) are the lowest internal layer.
+      They must not import any higher pkg/** layer, including api/apis types,
+      registry, component layers (controller, kubelet, proxy, scheduler,
+      kubeapiserver), controlplane assembly, or the leaf-component subsystems
+      (volume, credentialprovider, kubectl, kubemark, printers, probe,
+      security, securitycontext, serviceaccount) that themselves sit above
+      util in the import DAG. Review #5 [F6]: pkg/probe added for
+      consistency with the other leaf-component subsystems. Review #6 [F3]:
+      bare-path companions added for pkg/kubelet, pkg/proxy,
+      pkg/kubeapiserver, pkg/controlplane (the four subsystems whose
+      bare-path SUBJECT rules were added in review #4 [F2] but whose
+      OBJECT-side bare paths were missing here). Review #8 [F2]: nine
+      cross-cutting leaf packages (pkg/auth/**, pkg/capabilities,
+      pkg/certauthorization, pkg/client/**, pkg/cluster/ports, pkg/features,
+      pkg/fieldpath, pkg/routes, pkg/windows/service) added to mirror the
+      OBJECT-side counterpart of the round-7 [F4] SUBJECT rules — these
+      leaves sit ABOVE pkg/util in the import DAG so util must not back-
+      import them. plugin/** also added (was missing from this util-layer
+      deny list, present in pkg/apis/** and pkg/api/**).
+    package: "k8s.io/kubernetes/pkg/util/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/api/**"
+        - "k8s.io/kubernetes/pkg/apis/**"
+        - "k8s.io/kubernetes/pkg/registry"
+        - "k8s.io/kubernetes/pkg/registry/**"
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+        - "k8s.io/kubernetes/pkg/volume"
+        - "k8s.io/kubernetes/pkg/volume/**"
+        - "k8s.io/kubernetes/pkg/credentialprovider"
+        - "k8s.io/kubernetes/pkg/credentialprovider/**"
+        - "k8s.io/kubernetes/pkg/kubectl"
+        - "k8s.io/kubernetes/pkg/kubectl/**"
+        - "k8s.io/kubernetes/pkg/kubemark"
+        - "k8s.io/kubernetes/pkg/kubemark/**"
+        - "k8s.io/kubernetes/pkg/printers"
+        - "k8s.io/kubernetes/pkg/printers/**"
+        - "k8s.io/kubernetes/pkg/probe"
+        - "k8s.io/kubernetes/pkg/probe/**"
+        - "k8s.io/kubernetes/pkg/security"
+        - "k8s.io/kubernetes/pkg/security/**"
+        - "k8s.io/kubernetes/pkg/securitycontext"
+        - "k8s.io/kubernetes/pkg/securitycontext/**"
+        - "k8s.io/kubernetes/pkg/serviceaccount"
+        - "k8s.io/kubernetes/pkg/serviceaccount/**"
+        - "k8s.io/kubernetes/pkg/auth/**"
+        - "k8s.io/kubernetes/pkg/capabilities"
+        - "k8s.io/kubernetes/pkg/certauthorization"
+        - "k8s.io/kubernetes/pkg/client/**"
+        - "k8s.io/kubernetes/pkg/cluster/ports"
+        - "k8s.io/kubernetes/pkg/features"
+        - "k8s.io/kubernetes/pkg/fieldpath"
+        - "k8s.io/kubernetes/pkg/routes"
+        - "k8s.io/kubernetes/pkg/windows/service"
+        - "k8s.io/kubernetes/plugin/**"
+
+  # ---------------------------------------------------------------------------
+  # Layer 2 - pkg/apis/** must not import its Layer-2 peer pkg/api/** or higher
+  # ---------------------------------------------------------------------------
+  - description: >
+      Internal API type packages (pkg/apis/**) define the canonical Kubernetes
+      object model. They must remain foundational and must not import their
+      Layer-2 peer (pkg/api/**), the registry layer, component packages, or
+      higher-level control-plane packages. Review #6 [F2]: bare-path
+      companions added for the OBJECT-side deny entries. Review #7 [F2]:
+      leaf-component subsystems (volume, credentialprovider, kubectl,
+      kubemark, printers, probe, security, securitycontext, serviceaccount,
+      plugin) added to the deny list to mirror the util-layer rule's
+      complete leaf-isolation shape — Layer-2 sits below the leaf-component
+      subsystems in the import DAG and must not back-import them any more
+      than util must. Review #8 [F2]: nine cross-cutting leaf packages
+      (pkg/auth/**, pkg/capabilities, pkg/certauthorization, pkg/client/**,
+      pkg/cluster/ports, pkg/features, pkg/fieldpath, pkg/routes,
+      pkg/windows/service) added to mirror the OBJECT-side counterpart of
+      the round-7 [F4] SUBJECT rules — these leaves sit ABOVE Layer-2 in
+      the import DAG so apis must not back-import them.
+    package: "k8s.io/kubernetes/pkg/apis/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/api/**"
+        - "k8s.io/kubernetes/pkg/registry"
+        - "k8s.io/kubernetes/pkg/registry/**"
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+        - "k8s.io/kubernetes/pkg/volume"
+        - "k8s.io/kubernetes/pkg/volume/**"
+        - "k8s.io/kubernetes/pkg/credentialprovider"
+        - "k8s.io/kubernetes/pkg/credentialprovider/**"
+        - "k8s.io/kubernetes/pkg/kubectl"
+        - "k8s.io/kubernetes/pkg/kubemark"
+        - "k8s.io/kubernetes/pkg/kubemark/**"
+        - "k8s.io/kubernetes/pkg/printers"
+        - "k8s.io/kubernetes/pkg/printers/**"
+        - "k8s.io/kubernetes/pkg/probe"
+        - "k8s.io/kubernetes/pkg/probe/**"
+        - "k8s.io/kubernetes/pkg/security"
+        - "k8s.io/kubernetes/pkg/security/**"
+        - "k8s.io/kubernetes/pkg/securitycontext"
+        - "k8s.io/kubernetes/pkg/securitycontext/**"
+        - "k8s.io/kubernetes/pkg/serviceaccount"
+        - "k8s.io/kubernetes/pkg/serviceaccount/**"
+        - "k8s.io/kubernetes/pkg/auth/**"
+        - "k8s.io/kubernetes/pkg/capabilities"
+        - "k8s.io/kubernetes/pkg/certauthorization"
+        - "k8s.io/kubernetes/pkg/client/**"
+        - "k8s.io/kubernetes/pkg/cluster/ports"
+        - "k8s.io/kubernetes/pkg/features"
+        - "k8s.io/kubernetes/pkg/fieldpath"
+        - "k8s.io/kubernetes/pkg/routes"
+        - "k8s.io/kubernetes/pkg/windows/service"
+        - "k8s.io/kubernetes/plugin/**"
+
+  # ---------------------------------------------------------------------------
+  # Layer 2 - pkg/api/** must not import its Layer-2 peer pkg/apis/** or higher
+  #
+  # Review #4 [F5]: the broad `pkg/api/**` rule was originally replaced with
+  # per-sub-package enumeration so that the cross-layer test helper
+  # `pkg/api/testing` (which legitimately reaches into clientset / informer
+  # factories / controller and registry sub-packages to build fake reconciler
+  # harnesses) was excluded by positive sub-tree enumeration.
+  #
+  # Review #7 [F3] / [F5]: the 20-rule pkg/api fan-out was collapsed back to
+  # a single broad `pkg/api/**` rule. The fan-out had two issues:
+  #   1. It deliberately omitted pkg/api/testing from any subject glob, so
+  #      pkg/api/testing was the ONLY first-party Layer-2 helper whose
+  #      Layer-2 → upper-layer imports were completely unconstrained.
+  #   2. The 20 nearly-identical rules with identical deny content were a
+  #      maintenance burden disproportionate to the benefit; adding the
+  #      review #7 [F2] leaf-component sweep would have required 21 × 17
+  #      copy-paste edits.
+  # The collapsed broad rule treats pkg/api/testing as a documented
+  # expected-false-positive source under the broad glob (review #5 [F2]
+  # option B treatment), consistent with how pkg/scheduler/testing,
+  # pkg/controller/testutil, pkg/registry/registrytest, and pkg/volume/testing
+  # are handled. Track pkg/api/testing's actual cross-layer imports per
+  # review #5 [F2] option (B) — either move to internal/testing upstream
+  # or carve a narrow per-helper exception once the empirical run reveals
+  # the actual offenders.
+  #
+  # Review #7 [F2]: leaf-component subsystems (volume, credentialprovider,
+  # kubectl, kubemark, printers, probe, security, securitycontext,
+  # serviceaccount, plugin) added to the deny list to mirror the util-layer
+  # rule's complete leaf-isolation shape — Layer-2 sits below the leaf-
+  # component subsystems in the import DAG and must not back-import them
+  # any more than util must.
+  # ---------------------------------------------------------------------------
+  - description: >
+      pkg/api/** is Layer-2 (foundational API helpers — pod template helpers
+      for batch.Job, legacyscheme registration, node taint helpers,
+      persistentvolume helpers, etc.). Must not import the Layer-2 peer
+      (pkg/apis/**), the registry layer, component layers (controller,
+      kubelet, proxy, scheduler, kubeapiserver), Layer-5 controlplane
+      assembly, or leaf-component subsystems (volume, credentialprovider,
+      kubectl, kubemark, printers, probe, security, securitycontext,
+      serviceaccount, plugin). pkg/api/testing is an expected false-positive
+      source under this broad glob (it legitimately builds fake reconciler
+      harnesses from clientset / informer / controller helpers); track its
+      cross-layer imports per review #5 [F2] option (B) and either move it
+      to internal/testing upstream or carve a narrow per-helper exception
+      once the empirical run reveals the actual offenders. No bare-path
+      companion is needed because no bare pkg/api package exists in the
+      module (only sub-packages); the broad `**` glob covers every
+      pkg/api/<sub> sub-package as a one-segment extension. Review #8 [F2]:
+      nine cross-cutting leaf packages (pkg/auth/**, pkg/capabilities,
+      pkg/certauthorization, pkg/client/**, pkg/cluster/ports, pkg/features,
+      pkg/fieldpath, pkg/routes, pkg/windows/service) added to mirror the
+      OBJECT-side counterpart of the round-7 [F4] SUBJECT rules — these
+      leaves sit ABOVE Layer-2 in the import DAG so api must not back-
+      import them.
+    package: "k8s.io/kubernetes/pkg/api/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/apis/**"
+        - "k8s.io/kubernetes/pkg/registry"
+        - "k8s.io/kubernetes/pkg/registry/**"
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+        - "k8s.io/kubernetes/pkg/volume"
+        - "k8s.io/kubernetes/pkg/volume/**"
+        - "k8s.io/kubernetes/pkg/credentialprovider"
+        - "k8s.io/kubernetes/pkg/credentialprovider/**"
+        - "k8s.io/kubernetes/pkg/kubectl"
+        - "k8s.io/kubernetes/pkg/kubemark"
+        - "k8s.io/kubernetes/pkg/kubemark/**"
+        - "k8s.io/kubernetes/pkg/printers"
+        - "k8s.io/kubernetes/pkg/printers/**"
+        - "k8s.io/kubernetes/pkg/probe"
+        - "k8s.io/kubernetes/pkg/probe/**"
+        - "k8s.io/kubernetes/pkg/security"
+        - "k8s.io/kubernetes/pkg/security/**"
+        - "k8s.io/kubernetes/pkg/securitycontext"
+        - "k8s.io/kubernetes/pkg/securitycontext/**"
+        - "k8s.io/kubernetes/pkg/serviceaccount"
+        - "k8s.io/kubernetes/pkg/serviceaccount/**"
+        - "k8s.io/kubernetes/pkg/auth/**"
+        - "k8s.io/kubernetes/pkg/capabilities"
+        - "k8s.io/kubernetes/pkg/certauthorization"
+        - "k8s.io/kubernetes/pkg/client/**"
+        - "k8s.io/kubernetes/pkg/cluster/ports"
+        - "k8s.io/kubernetes/pkg/features"
+        - "k8s.io/kubernetes/pkg/fieldpath"
+        - "k8s.io/kubernetes/pkg/routes"
+        - "k8s.io/kubernetes/pkg/windows/service"
+        - "k8s.io/kubernetes/plugin/**"
+
+  # ---------------------------------------------------------------------------
+  # Layer 3 - Registry must not import component layers, controlplane, or
+  # kubeapiserver. Layer 3 → Layer 4 inversion is forbidden (registry sits
+  # below kubeapiserver/controlplane in the assembly graph).
+  #
+  # Review #5 [F2] / [F4] (option B applied): the per-sub-package fan-out
+  # introduced in review #2 [F3] (rbac, resource) and extended in review #3
+  # [F7] / review #4 (predictive sub-trees: core, apps, batch, networking,
+  # storage, policy, certificates, admissionregistration) was reverted in
+  # favour of a single broad `pkg/registry/**` rule plus the bare-path
+  # sibling. Rationale:
+  #
+  #   1. The per-sub-package fan-out exempted the bare canonical sub-package
+  #      paths from the Layer-3 → Layer-4 ban (e.g., bare pkg/registry/rbac
+  #      where escalation_check.go lives), since arch-go's `**` glob does
+  #      not match the bare prefix (review #5 [F2]).
+  #   2. Eight of the eleven fan-out entries (core/apps/batch/networking/
+  #      storage/policy/certificates/admissionregistration) targeted
+  #      packages that are not present in the supplied snapshot — i.e.,
+  #      they were predictive against upstream master rather than derived
+  #      from the actual targeted commit (review #5 [F4]).
+  #
+  # The broad `pkg/registry/**` rule below covers every registry sub-tree
+  # (rbac, resource, and any future API group) including each bare
+  # canonical sub-package as a one-segment extension of `pkg/registry/`.
+  # The test helper `pkg/registry/registrytest` is the only known expected
+  # false positive; document any cross-layer imports it produces and either
+  # move it to `pkg/registry/internal/registrytest` upstream or carve a
+  # narrow exception once the empirical run reveals the actual offenders.
+  #
+  # Review #6 [F2]: bare-path companions added to the OBJECT-side deny
+  # entries (controller, kubelet, proxy, scheduler, kubeapiserver,
+  # controlplane) so imports of those bare canonical sibling packages
+  # are caught.
+  # ---------------------------------------------------------------------------
+  - description: >
+      Bare pkg/registry package (top-level registry helpers).
+      Same Layer-3 → Layer-4 / Layer-5 inversion ban as the broad rule
+      below. The `**` glob does not match the bare path, hence this
+      sibling rule (review #3 [F2]).
+    package: "k8s.io/kubernetes/pkg/registry"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      Registry sub-tree (pkg/registry/**) must not import component packages
+      or control-plane / apiserver assembly. The broad glob covers every
+      registry sub-tree, including bare canonical sub-packages such as
+      pkg/registry/rbac (where escalation_check.go and friends live). Test
+      helper pkg/registry/registrytest is an expected false-positive source;
+      track its cross-layer imports per review #5 [F2] option (B).
+    package: "k8s.io/kubernetes/pkg/registry/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  # ---------------------------------------------------------------------------
+  # Layer 4 - Parallel component peers (symmetric non-coupling lattice).
+  #
+  # Review #5 [F2] (option B applied): the 32-entry per-sub-package fan-out
+  # introduced in review #2 [F3] was reverted in favour of a single broad
+  # `pkg/controller/**` rule plus the bare-path sibling. Rationale:
+  #
+  #   1. The fan-out exempted the bare canonical sub-package paths from the
+  #      Layer-4 lattice (e.g., bare pkg/controller/deployment where
+  #      DeploymentController lives) because arch-go's `**` glob does not
+  #      match the bare prefix.
+  #   2. Maintaining a 32-entry fan-out manually synchronised against
+  #      upstream — AND adding bare-path companions to each — was a
+  #      structural maintenance burden disproportionate to the benefit of
+  #      excluding the single test helper sub-tree pkg/controller/testutil.
+  #
+  # The broad `pkg/controller/**` rule below covers every controller
+  # sub-tree (bootstrap, certificates, cronjob, daemon, deployment, ...,
+  # validatingadmissionpolicystatus). The test helper pkg/controller/testutil
+  # is a documented expected false-positive source — track its cross-layer
+  # imports per review #5 [F2] option (B) and either move it to
+  # pkg/controller/internal/testutil upstream or carve a narrow exception
+  # once the empirical run reveals the actual offenders.
+  #
+  # Review #6 [F2]: bare-path companions added to the OBJECT-side deny
+  # entries (scheduler, kubelet, proxy, kubeapiserver, controlplane) so
+  # imports of those bare canonical sibling packages are caught.
+  # ---------------------------------------------------------------------------
+  - description: >
+      Bare pkg/controller package (the controller framework helpers — KeyFunc,
+      RemoveTaintOffNode, WaitForCacheSync adapters, etc. — used by every
+      reconciler). Same Layer-4 non-coupling lattice as the broad rule
+      below; the `**` glob does not match the bare path (review #3 [F2]).
+    package: "k8s.io/kubernetes/pkg/controller"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      Controller manager sub-tree (pkg/controller/**) must not import any
+      sibling Layer-4 component (scheduler, kubelet, proxy, kubeapiserver)
+      nor Layer-5 controlplane. Broad-glob coverage includes every bare
+      canonical sub-package (deployment, job, replicaset, statefulset, ...).
+      Test helper pkg/controller/testutil is an expected false-positive
+      source per review #5 [F2] option (B).
+    package: "k8s.io/kubernetes/pkg/controller/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  # ---------------------------------------------------------------------------
+  # Scheduler (Layer 4 sibling).
+  #
+  # Review #5 [F2] / [F4] (option B applied): the per-sub-package fan-out
+  # introduced in review #2 [F3] (framework, profile, metrics, util) and
+  # extended in review #3 [F7] (predictive sub-trees: apis, backend,
+  # internal) was reverted in favour of a single broad `pkg/scheduler/**`
+  # rule plus the bare-path sibling. Rationale: same as the controller
+  # fan-out — the per-sub-package fan-out exempted bare canonical paths
+  # like pkg/scheduler/framework (where the canonical Plugin interface
+  # lives) and three of the seven entries (apis, backend, internal) were
+  # predictive against upstream master rather than derived from the
+  # supplied snapshot.
+  #
+  # The broad `pkg/scheduler/**` rule below covers every scheduler sub-tree
+  # including bare canonical sub-packages. Test helper pkg/scheduler/testing
+  # is an expected false-positive source per review #5 [F2] option (B).
+  #
+  # Review #6 [F2]: bare-path companions added to the OBJECT-side deny
+  # entries (controller, kubelet, proxy, kubeapiserver, controlplane).
+  # ---------------------------------------------------------------------------
+  - description: >
+      Bare pkg/scheduler package (the canonical Scheduler struct and the
+      main `Run(ctx)` scheduling loop in pkg/scheduler/scheduler.go). Same
+      Layer-4 non-coupling lattice as the broad rule below; the `**` glob
+      does not match the bare path (review #3 [F2]).
+    package: "k8s.io/kubernetes/pkg/scheduler"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      Scheduler sub-tree (pkg/scheduler/**) must not import any sibling
+      Layer-4 component (controller, kubelet, proxy, kubeapiserver) nor
+      Layer-5 controlplane. Broad-glob coverage includes every bare
+      canonical sub-package (framework, profile, metrics, util, ...).
+      Test helper pkg/scheduler/testing is an expected false-positive
+      source per review #5 [F2] option (B).
+    package: "k8s.io/kubernetes/pkg/scheduler/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  # ---------------------------------------------------------------------------
+  # Kubelet (Layer 4 sibling) — broad rule retained; no in-scope test-helper
+  # sub-tree under pkg/kubelet/** at the package-list level.
+  # Review #4 [F2]: bare-path sibling rule added so the canonical Kubelet
+  # struct in pkg/kubelet/kubelet.go is not silently exempt from the
+  # Layer-4 non-coupling lattice.
+  # Review #6 [F2]: bare-path companions added to the OBJECT-side deny
+  # entries (controller, scheduler, proxy, kubeapiserver, controlplane).
+  # ---------------------------------------------------------------------------
+  - description: >
+      Bare pkg/kubelet package (the canonical Kubelet struct and main
+      Run/syncLoop in pkg/kubelet/kubelet.go). Same Layer-4 non-coupling
+      lattice as the pkg/kubelet/** rule below; the `**` glob does not
+      match the bare path (review #4 [F2]).
+    package: "k8s.io/kubernetes/pkg/kubelet"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      Kubelet packages (pkg/kubelet/**) are node-agent code and must not
+      import any sibling Layer-4 component (controller, scheduler, proxy,
+      kubeapiserver) nor Layer-5 controlplane. The kubelet talks to the API
+      server only through client interfaces, never via direct package
+      imports.
+    package: "k8s.io/kubernetes/pkg/kubelet/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      Bare pkg/proxy package (the canonical Proxier interface in
+      pkg/proxy/types.go and the shared ServicePort/ServiceMap data
+      carriers). Same Layer-4 non-coupling lattice as the pkg/proxy/**
+      rule below (review #4 [F2]).
+    package: "k8s.io/kubernetes/pkg/proxy"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      kube-proxy packages (pkg/proxy/**) implement node-level network rule
+      management. They must not import any sibling Layer-4 component
+      (controller, scheduler, kubelet, kubeapiserver) nor Layer-5
+      controlplane.
+    package: "k8s.io/kubernetes/pkg/proxy/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      Bare pkg/kubeapiserver package (apiserver-side admission, authentication,
+      and authorization top-level wiring). Same Layer-4 non-coupling lattice
+      as the pkg/kubeapiserver/** rule below (review #4 [F2]).
+    package: "k8s.io/kubernetes/pkg/kubeapiserver"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      The kubeapiserver support packages (pkg/kubeapiserver/**) provide
+      admission, authentication, and authorization wiring for the API server.
+      They must not import any sibling Layer-4 component (controller,
+      scheduler, kubelet, proxy) nor Layer-5 controlplane assembly.
+    package: "k8s.io/kubernetes/pkg/kubeapiserver/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  # ---------------------------------------------------------------------------
+  # Layer 5 - Control Plane must not import node-side components. The cmd/**
+  # ban is enforced globally by the pkg/** → cmd/** catch-all below; no need
+  # to repeat it here.
+  # Review #4 [F2]: bare-path sibling rule added so the canonical control
+  # plane assembly file (pkg/controlplane/instance.go) is not silently
+  # exempt from the Layer-5 → node-side ban.
+  # Review #6 [F2]: bare-path companions added for kubelet and proxy on
+  # the OBJECT side.
+  # ---------------------------------------------------------------------------
+  - description: >
+      Bare pkg/controlplane package (top-level control-plane assembly,
+      including pkg/controlplane/instance.go). Same Layer-5 → node-side ban
+      as the pkg/controlplane/** rule below; bare path is required because
+      `**` does not match it (review #4 [F2]).
+    package: "k8s.io/kubernetes/pkg/controlplane"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+
+  - description: >
+      Control plane assembly packages (pkg/controlplane/**) compose API,
+      controller, scheduler, and kubeapiserver layers, but must not import
+      node-side components (kubelet, proxy). The cmd/** ban is enforced
+      globally by the pkg/** → cmd/** catch-all below.
+    package: "k8s.io/kubernetes/pkg/controlplane/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+
+  # ---------------------------------------------------------------------------
+  # Whole-subsystem coverage: leaf subsystems must not import upper layers.
+  #
+  # Volume.
+  # Review #5 [F2] (option B applied): the 17-entry per-sub-package fan-out
+  # introduced in review #3 [F6] was reverted in favour of a single broad
+  # `pkg/volume/**` rule plus the bare-path sibling. Rationale: same as the
+  # controller / scheduler / registry rollback — the fan-out exempted bare
+  # canonical sub-packages such as pkg/volume/csi (where csiPlugin lives)
+  # because arch-go's `**` glob does not match the bare prefix. The test
+  # helper sub-tree pkg/volume/testing is an expected false-positive source.
+  # Review #6 [F2]: bare-path companions added on the OBJECT side.
+  # ---------------------------------------------------------------------------
+  - description: >
+      Bare pkg/volume package (volume plugin framework root —
+      VolumePlugin/Mounter/Unmounter interfaces and their host helpers).
+      Same constraints as the broad rule below; the bare path is required
+      because `**` does not match it (review #3 [F2], [F11]).
+    package: "k8s.io/kubernetes/pkg/volume"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/cmd/**"
+
+  - description: >
+      Volume sub-tree (pkg/volume/**) must not import component layers,
+      controlplane, kubeapiserver, or cmd entry points. Broad-glob coverage
+      includes every bare canonical sub-package (csi, iscsi, hostpath,
+      local, nfs, ...). Test helper pkg/volume/testing is an expected
+      false-positive source per review #5 [F2] option (B).
+    package: "k8s.io/kubernetes/pkg/volume/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/cmd/**"
+
+  - description: >
+      Bare pkg/credentialprovider package (review #3 [F11]; bare-path glob
+      sibling to the sub-tree rule below). Review #6 [F2]: bare-path
+      companions on the OBJECT side.
+    package: "k8s.io/kubernetes/pkg/credentialprovider"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/cmd/**"
+
+  - description: >
+      Credential providers (pkg/credentialprovider/**) are leaf utilities used
+      by the kubelet to obtain image-pull credentials. They must not import
+      controller, scheduler, proxy, controlplane, kubeapiserver, or cmd.
+    package: "k8s.io/kubernetes/pkg/credentialprovider/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/cmd/**"
+
+  # ---------------------------------------------------------------------------
+  # Additional leaf-subsystem isolation (review #2 [F9]).
+  # Security/auth primitives are leaf packages; client-side libraries are
+  # client-shaped; in-tree auth plugins live under plugin/**. arch-go does not
+  # support brace expansion, so each subsystem gets its own rule.
+  #
+  # Each leaf subsystem ships TWO rules — a bare-path rule and a sub-tree
+  # rule — because arch-go's `**` glob does not match the bare prefix
+  # (review #3 [F11]). The convention mirrors the util-layer deny list.
+  # Review #6 [F2]: bare-path companions added to the OBJECT-side deny
+  # entries.
+  # ---------------------------------------------------------------------------
+  - description: >
+      Security primitives bare path (pkg/security) — review #3 [F11].
+    package: "k8s.io/kubernetes/pkg/security"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+        - "k8s.io/kubernetes/cmd/**"
+
+  - description: >
+      Security primitives (pkg/security/**) are leaf packages used by both
+      apiserver and kubelet. They must not back-import any component layer or
+      cmd entry point.
+    package: "k8s.io/kubernetes/pkg/security/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+        - "k8s.io/kubernetes/cmd/**"
+
+  - description: >
+      Bare pkg/securitycontext package — review #3 [F11]. The
+      `securitycontext.NewSecurityContext` and
+      `securitycontext.HasPrivilegedRequest` helpers live here.
+    package: "k8s.io/kubernetes/pkg/securitycontext"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+        - "k8s.io/kubernetes/cmd/**"
+
+  - description: >
+      Security context helpers (pkg/securitycontext/**) are leaf utilities
+      used by both apiserver and kubelet.
+    package: "k8s.io/kubernetes/pkg/securitycontext/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+        - "k8s.io/kubernetes/cmd/**"
+
+  - description: >
+      Bare pkg/serviceaccount package — review #3 [F11].
+    package: "k8s.io/kubernetes/pkg/serviceaccount"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+        - "k8s.io/kubernetes/cmd/**"
+
+  - description: >
+      Service account primitives (pkg/serviceaccount/**) are leaf packages.
+    package: "k8s.io/kubernetes/pkg/serviceaccount/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+        - "k8s.io/kubernetes/cmd/**"
+
+  - description: >
+      Bare pkg/probe package — review #3 [F11].
+    package: "k8s.io/kubernetes/pkg/probe"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+        - "k8s.io/kubernetes/cmd/**"
+
+  - description: >
+      Probe primitives (pkg/probe/**) are leaf packages used by the kubelet
+      health-check pipeline; they must not back-import any component layer.
+    package: "k8s.io/kubernetes/pkg/probe/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+        - "k8s.io/kubernetes/cmd/**"
+
+  - description: >
+      Kubectl in-tree library (bare pkg/kubectl, the compatibility shim that
+      remains after most kubectl moved to staging/src/k8s.io/kubectl). Must
+      not import server-side component packages. Review #3 [F9] / [F11]:
+      the bare path is the actual covered package today. Review #6 [F6]:
+      the previously-paired pkg/kubectl/** rule was deleted because the
+      package list contains no pkg/kubectl/<sub> sub-package — the rule
+      was vacuous and contributed only noise. Re-add a /** rule when
+      in-tree kubectl sub-packages are reintroduced upstream.
+    package: "k8s.io/kubernetes/pkg/kubectl"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      Bare pkg/printers package — review #3 [F11].
+    package: "k8s.io/kubernetes/pkg/printers"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      Printers library (pkg/printers/**) is client-shaped output formatting
+      and must not import server-side component packages.
+    package: "k8s.io/kubernetes/pkg/printers/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      Bare pkg/kubemark package — review #3 [F11]; bare-path glob sibling to
+      the sub-tree rule below.
+    package: "k8s.io/kubernetes/pkg/kubemark"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      Kubemark hollow-node test harness library (pkg/kubemark/**) is
+      client-shaped; it composes a fake node from public APIs and must not
+      back-import server-side component packages.
+    package: "k8s.io/kubernetes/pkg/kubemark/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      In-tree auth plugins (plugin/**) are loaded by kubeapiserver/admission;
+      they must not back-import component layers, controlplane, or cmd entry
+      points. They must also not back-import kubeapiserver itself, because
+      that would create the same import cycle that motivates the leaf rule
+      in the first place: kubeapiserver/admission imports plugin/pkg/auth,
+      so plugin must not back-import pkg/kubeapiserver (review #8 [F3]).
+      Every other leaf rule (security, securitycontext, serviceaccount,
+      probe, kubectl, printers, kubemark, credentialprovider, volume)
+      already denies kubeapiserver; this rule was the only outlier despite
+      having the strongest documented coupling to kubeapiserver.
+    package: "k8s.io/kubernetes/plugin/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+        - "k8s.io/kubernetes/cmd/**"
+
+  # ---------------------------------------------------------------------------
+  # Cross-cutting leaf packages (review #7 [F4]).
+  #
+  # The following ten packages were previously documented as "covered only
+  # by the broad pkg/** -> cmd/** catch-all" but the catch-all forbids only
+  # cmd-imports — it does NOT forbid component-layer / control-plane back-
+  # imports. So these leaf packages were unconstrained against importing
+  # pkg/scheduler / pkg/kubelet / pkg/proxy / pkg/controller / pkg/controlplane
+  # / pkg/kubeapiserver before this round. Each of them sits above pkg/util
+  # and below the component / control-plane layers in the import DAG and
+  # must not climb the layer stack — they are foundational helpers consumed
+  # BY apiserver / kubelet / scheduler, not the other way round.
+  #
+  # Coverage:
+  #   - pkg/auth/** (covers pkg/auth/nodeidentifier and any future pkg/auth/<sub>)
+  #   - pkg/capabilities (single bare leaf — security capability constants)
+  #   - pkg/certauthorization (single bare leaf — cert authorization helpers)
+  #   - pkg/client/** (covers pkg/client/conditions, pkg/client/tests)
+  #   - pkg/cluster/ports (single bare leaf — port-number constants)
+  #   - pkg/features (single bare leaf — feature gates registration)
+  #   - pkg/fieldpath (single bare leaf — fieldpath helpers)
+  #   - pkg/routes (single bare leaf — apiserver HTTP route registration)
+  #   - pkg/windows/service (single bare leaf — Windows service-mode helper)
+  #
+  # Each leaf gets a single rule with the same deny shape — component layers
+  # plus controlplane plus kubeapiserver. cmd/** is covered by the global
+  # pkg/** -> cmd/** catch-all below; no need to repeat it here.
+  # ---------------------------------------------------------------------------
+  - description: >
+      pkg/auth/** (covers pkg/auth/nodeidentifier, used by kube-apiserver
+      authentication to identify node clients). A leaf helper above
+      pkg/util but below the component layers; must not back-import any
+      component or control-plane package (review #7 [F4]).
+    package: "k8s.io/kubernetes/pkg/auth/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      pkg/capabilities (security capability constants — bare leaf package).
+      Must not back-import any component or control-plane package
+      (review #7 [F4]).
+    package: "k8s.io/kubernetes/pkg/capabilities"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      pkg/certauthorization (cert authorization helpers — bare leaf
+      package). Must not back-import any component or control-plane
+      package (review #7 [F4]).
+    package: "k8s.io/kubernetes/pkg/certauthorization"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      pkg/client/** (covers pkg/client/conditions, pkg/client/tests — small
+      client-side helpers). Must not back-import any server-side component
+      or control-plane package (review #7 [F4]).
+    package: "k8s.io/kubernetes/pkg/client/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      pkg/cluster/ports (port-number constants used by control-plane
+      assembly — should be constants only). Must not back-import any
+      component or control-plane package (review #7 [F4]).
+    package: "k8s.io/kubernetes/pkg/cluster/ports"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      pkg/features (Kubernetes feature gates registration — should be a
+      self-contained flag-registration mechanism imported by every
+      component but importing no component itself). Must not back-import
+      any component or control-plane package (review #7 [F4]).
+    package: "k8s.io/kubernetes/pkg/features"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      pkg/fieldpath (fieldpath helpers — bare leaf package). Must not
+      back-import any component or control-plane package (review #7 [F4]).
+    package: "k8s.io/kubernetes/pkg/fieldpath"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      pkg/routes (mounts HTTP debug routes — pprof, OpenAPI — on the
+      apiserver; consumed by kubeapiserver only). Should depend only on
+      apiserver primitives; must not back-import any component or
+      control-plane package (review #7 [F4]).
+    package: "k8s.io/kubernetes/pkg/routes"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      pkg/windows/service (Windows-platform helper for service-mode
+      binaries — should be a leaf utility, not import the kubelet
+      package). Must not back-import any component or control-plane
+      package (review #7 [F4]).
+    package: "k8s.io/kubernetes/pkg/windows/service"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  # ---------------------------------------------------------------------------
+  # Belt-and-braces: nothing under pkg/** may import cmd/** entry points.
+  # ---------------------------------------------------------------------------
+  - description: >
+      All library packages (pkg/**) live below the cmd/** layer in the import
+      DAG. No pkg/** package may import a cmd/** entry point; the dependency
+      direction is strictly cmd -> pkg, never the reverse.
+    package: "k8s.io/kubernetes/pkg/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/cmd/**"
+
+  # ---------------------------------------------------------------------------
+  # Intra-layer: kubelet/container (and sub-packages) must not import server.
+  # The pkg/kubelet/types leaf rule from prior rounds was deleted: Go's
+  # import-cycle prohibition already prevents kubelet/types from importing
+  # any kubelet sub-package that imports kubelet/types itself, making the
+  # rule structurally redundant (review #2 [F10]).
+  #
+  # Note (review #3 [F12]): some of the directions below (container →
+  # server, container → volumemanager) are likely already prevented by Go's
+  # import-cycle handling because server/volumemanager depend on
+  # container.Runtime. The rule remains as documentation of the intended
+  # architectural fence; verify on a real upstream run which directions
+  # actually fire vs. duplicate compiler-enforced cycles.
+  #
+  # Review #6 [F4]: bare-path companions added to the OBJECT-side deny
+  # entries (pkg/kubelet/server, pkg/kubelet/config, pkg/kubelet/volumemanager)
+  # so a direct import of the bare canonical sub-package — where the
+  # canonical HTTP server, config loader, and VolumeManager implementations
+  # live — is also denied.
+  # ---------------------------------------------------------------------------
+  - description: >
+      Bare pkg/kubelet/container package (where the canonical Runtime
+      interface lives in pkg/kubelet/container/runtime.go). Same intra-
+      layer fence as the /** rule below; the `**` glob does not match the
+      bare path (review #5 [F5]). Review #8 [F5]: the listed three
+      directions (server, config, volumemanager) are documented
+      architectural intent; the other ~25 above-container kubelet sub-
+      packages (kuberuntime, status, eviction, lifecycle, pleg, prober,
+      pluginmanager, oom, pod, allocation, cm, ...) consume container.Runtime
+      and are protected at compile time by Go's import-cycle prohibition.
+      When adding a new kubelet sub-package, add it to this deny list if
+      it does not directly import container.Runtime.
+    package: "k8s.io/kubernetes/pkg/kubelet/container"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/kubelet/server"
+        - "k8s.io/kubernetes/pkg/kubelet/server/**"
+        - "k8s.io/kubernetes/pkg/kubelet/config"
+        - "k8s.io/kubernetes/pkg/kubelet/config/**"
+        - "k8s.io/kubernetes/pkg/kubelet/volumemanager"
+        - "k8s.io/kubernetes/pkg/kubelet/volumemanager/**"
+
+  - description: >
+      The kubelet container abstraction layer (pkg/kubelet/container/**)
+      defines runtime interfaces and must not import any kubelet sub-package
+      that consumes pkg/kubelet/container.Runtime. The three listed below
+      (server, config, volumemanager) are the architectural intent in
+      documentation form; the other ~25 above-container sub-packages
+      (kuberuntime, status, eviction, lifecycle, pleg, prober, pluginmanager,
+      oom, pod, allocation, cm, ...) are protected at compile time by Go's
+      import-cycle prohibition because they all import container.Runtime
+      directly. When adding a new kubelet sub-package, add it to this deny
+      list if it does not directly import container.Runtime
+      (review #3 [F12]; review #8 [F5] documents Go's cycle detection as
+      the actual enforcement mechanism for the remaining consumers).
+    package: "k8s.io/kubernetes/pkg/kubelet/container/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/kubelet/server"
+        - "k8s.io/kubernetes/pkg/kubelet/server/**"
+        - "k8s.io/kubernetes/pkg/kubelet/config"
+        - "k8s.io/kubernetes/pkg/kubelet/config/**"
+        - "k8s.io/kubernetes/pkg/kubelet/volumemanager"
+        - "k8s.io/kubernetes/pkg/kubelet/volumemanager/**"
+
+  # ---------------------------------------------------------------------------
+  # Intra-layer: proxy/util (and sub-packages) must not import proxy backends
+  #
+  # Review #6 [F4]: bare-path companions added to the OBJECT-side deny
+  # entries (pkg/proxy/iptables, pkg/proxy/ipvs, pkg/proxy/nftables,
+  # pkg/proxy/winkernel) so a direct import of the bare canonical backend
+  # implementation — where the canonical Proxier struct lives — is also
+  # denied.
+  # ---------------------------------------------------------------------------
+  - description: >
+      Bare pkg/proxy/util package (shared network helpers and types in
+      pkg/proxy/util/utils.go etc.). Same implementation-agnostic fence as
+      the /** rule below; the `**` glob does not match the bare path
+      (review #5 [F5]). Review #8 [F4]: composition / runner / fake
+      backends (kubemark, metaproxier, runner) added — these are
+      unambiguous backend / orchestrator packages that the implementation-
+      agnostic util layer must not import. The borderline entries
+      (conntrack, healthcheck, metrics) are deferred until the empirical
+      run reveals legitimate util-side use.
+    package: "k8s.io/kubernetes/pkg/proxy/util"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/proxy/iptables"
+        - "k8s.io/kubernetes/pkg/proxy/iptables/**"
+        - "k8s.io/kubernetes/pkg/proxy/ipvs"
+        - "k8s.io/kubernetes/pkg/proxy/ipvs/**"
+        - "k8s.io/kubernetes/pkg/proxy/nftables"
+        - "k8s.io/kubernetes/pkg/proxy/nftables/**"
+        - "k8s.io/kubernetes/pkg/proxy/winkernel"
+        - "k8s.io/kubernetes/pkg/proxy/winkernel/**"
+        - "k8s.io/kubernetes/pkg/proxy/kubemark"
+        - "k8s.io/kubernetes/pkg/proxy/metaproxier"
+        - "k8s.io/kubernetes/pkg/proxy/runner"
+
+  - description: >
+      The proxy utility tree (pkg/proxy/util/**) provides shared network
+      helpers for kube-proxy implementations. It must not import specific
+      backend implementations (iptables, ipvs, nftables, winkernel) NOR
+      composition / runner / fake backends (kubemark, metaproxier, runner)
+      to ensure the utility layer remains implementation-agnostic.
+      Review #8 [F4]: kubemark, metaproxier, runner added; conntrack,
+      healthcheck, metrics deferred until the empirical run reveals
+      legitimate util-side use.
+    package: "k8s.io/kubernetes/pkg/proxy/util/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/proxy/iptables"
+        - "k8s.io/kubernetes/pkg/proxy/iptables/**"
+        - "k8s.io/kubernetes/pkg/proxy/ipvs"
+        - "k8s.io/kubernetes/pkg/proxy/ipvs/**"
+        - "k8s.io/kubernetes/pkg/proxy/nftables"
+        - "k8s.io/kubernetes/pkg/proxy/nftables/**"
+        - "k8s.io/kubernetes/pkg/proxy/winkernel"
+        - "k8s.io/kubernetes/pkg/proxy/winkernel/**"
+        - "k8s.io/kubernetes/pkg/proxy/kubemark"
+        - "k8s.io/kubernetes/pkg/proxy/metaproxier"
+        - "k8s.io/kubernetes/pkg/proxy/runner"
+
+  # ---------------------------------------------------------------------------
+  # cmd layer: each binary tree must not import sibling-binary internals.
+  # Cmd-side rules are now symmetric with respect to the documented
+  # "separate binaries" invariant (review #2 [F6]).
+  #
+  # Review #5 [F3]: each cmd binary now has a bare-path companion rule
+  # alongside its `<X>/**` rule, mirroring the convention used for the
+  # pkg/scheduler / pkg/controller / pkg/registry / pkg/volume / pkg/kubelet
+  # / pkg/proxy / pkg/kubeapiserver / pkg/controlplane Layer-4/5 entries.
+  # The bare cmd/<X> path is the binary entry point (main.go); without the
+  # companion rule a `main.go` could silently `import "k8s.io/kubernetes/
+  # pkg/scheduler/framework"` and pass the lattice. This was particularly
+  # vacuous for cmd/cloud-controller-manager, cmd/kubectl, and
+  # cmd/kubectl-convert, which appear ONLY as bare paths in the supplied
+  # snapshot — their `<X>/**` rules matched zero packages.
+  #
+  # Review #6 [F2] / [F5]: bare-path companions added to the OBJECT-side
+  # deny entries (controller, scheduler, kubelet, proxy, kubeapiserver,
+  # controlplane, and per-backend kubemark proxy entries) so a cmd-side
+  # main.go that imports the bare canonical sibling-binary package is
+  # denied.
+  # ---------------------------------------------------------------------------
+  - description: >
+      Bare cmd/kube-scheduler package (binary entry point main.go). Same
+      cross-binary fence as the cmd/kube-scheduler/** rule below
+      (review #5 [F3]).
+    package: "k8s.io/kubernetes/cmd/kube-scheduler"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      The kube-scheduler binary tree (cmd/kube-scheduler/**) covers the
+      main shim and the cmd/kube-scheduler/app wiring. It must not import
+      sibling-binary packages or controlplane/kubeapiserver assembly.
+    package: "k8s.io/kubernetes/cmd/kube-scheduler/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      Bare cmd/kube-proxy package (binary entry point main.go). Same fence
+      as the cmd/kube-proxy/** rule below (review #5 [F3]).
+    package: "k8s.io/kubernetes/cmd/kube-proxy"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      The kube-proxy binary tree (cmd/kube-proxy/**) is a node-side process.
+      It must not import sibling-binary packages or controlplane/kubeapiserver
+      assembly.
+    package: "k8s.io/kubernetes/cmd/kube-proxy/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      Bare cmd/kubelet package (binary entry point main.go). Same fence as
+      the cmd/kubelet/** rule below (review #5 [F3]).
+    package: "k8s.io/kubernetes/cmd/kubelet"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      The kubelet binary tree (cmd/kubelet/**) is a node-side process. It
+      must not import sibling-binary packages (controller, proxy, scheduler)
+      and must not import control-plane assembly. The kubelet talks to the
+      API server only through client interfaces.
+    package: "k8s.io/kubernetes/cmd/kubelet/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      Bare cmd/kube-apiserver package (binary entry point main.go). Same
+      fence as the cmd/kube-apiserver/** rule below (review #5 [F3]).
+    package: "k8s.io/kubernetes/cmd/kube-apiserver"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+
+  - description: >
+      The kube-apiserver binary tree (cmd/kube-apiserver/**) is the API
+      server entry point. It must not import sibling-binary packages
+      (kube-scheduler, kube-controller-manager) or node-side packages
+      (kubelet, kube-proxy). The apiserver binary may legitimately compose
+      pkg/controlplane/** and pkg/kubeapiserver/** — that is its exact role.
+      Review #3 [F3]: the deny list is now symmetric with respect to its
+      Layer-4 binary peers (cmd/kube-controller-manager, cmd/kube-scheduler,
+      cmd/cloud-controller-manager).
+    package: "k8s.io/kubernetes/cmd/kube-apiserver/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+
+  - description: >
+      Bare cmd/kube-controller-manager package (binary entry point main.go).
+      Same fence as the cmd/kube-controller-manager/** rule below
+      (review #5 [F3]).
+    package: "k8s.io/kubernetes/cmd/kube-controller-manager"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      The kube-controller-manager binary tree (cmd/kube-controller-manager/**)
+      hosts reconciliation loops. It must not import sibling-binary packages
+      (scheduler, kubelet, proxy) and must not back-import controlplane or
+      kubeapiserver assembly. It talks to the apiserver via clientset, never
+      via direct package import.
+    package: "k8s.io/kubernetes/cmd/kube-controller-manager/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      Bare cmd/cloud-controller-manager package (binary entry point main.go).
+      The package list shows ONLY the bare path; the original
+      cmd/cloud-controller-manager/** rule was vacuous against this
+      snapshot (review #5 [F3]).
+    package: "k8s.io/kubernetes/cmd/cloud-controller-manager"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      The cloud-controller-manager binary tree
+      (cmd/cloud-controller-manager/**) is intended to be runnable
+      out-of-tree. It must not back-import in-tree controller, scheduler,
+      kubelet, proxy, kubeapiserver, or controlplane packages.
+    package: "k8s.io/kubernetes/cmd/cloud-controller-manager/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      Bare cmd/kubectl package (the kubectl binary entry point). The package
+      list shows ONLY the bare path; the original cmd/kubectl/** rule was
+      vacuous against this snapshot (review #5 [F3]).
+    package: "k8s.io/kubernetes/cmd/kubectl"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+
+  - description: >
+      kubectl (cmd/kubectl/**) is a client-side binary. It must not import
+      server-side packages (controller, scheduler, kubelet, proxy,
+      controlplane, kubeapiserver).
+    package: "k8s.io/kubernetes/cmd/kubectl/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+
+  - description: >
+      Bare cmd/kubectl-convert package (the kubectl-convert binary entry
+      point). The package list shows ONLY the bare path; the original
+      cmd/kubectl-convert/** rule was vacuous against this snapshot
+      (review #5 [F3]).
+    package: "k8s.io/kubernetes/cmd/kubectl-convert"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+
+  - description: >
+      kubectl-convert (cmd/kubectl-convert/**) is a kubectl-family client
+      binary that ships in the Kubernetes release. It is subject to the same
+      client-side constraints as kubectl: no server-side imports. The glob
+      cmd/kubectl/** does not match this sibling, so a dedicated rule is
+      required (review #2 [F5]).
+    package: "k8s.io/kubernetes/cmd/kubectl-convert/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+
+  - description: >
+      Bare cmd/kubeadm package (binary entry point main.go). Same fence as
+      the cmd/kubeadm/** rule below (review #5 [F3]).
+    package: "k8s.io/kubernetes/cmd/kubeadm"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+
+  - description: >
+      kubeadm (cmd/kubeadm/**) is a cluster-bootstrap tool. It must not
+      back-import controller, scheduler, kubelet, proxy, controlplane, or
+      kubeapiserver packages; cluster bring-up uses generated manifests and
+      clientset, not direct package imports.
+    package: "k8s.io/kubernetes/cmd/kubeadm/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/kubelet"
+        - "k8s.io/kubernetes/pkg/kubelet/**"
+        - "k8s.io/kubernetes/pkg/proxy"
+        - "k8s.io/kubernetes/pkg/proxy/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+
+  - description: >
+      Bare cmd/kubemark package (binary entry point main.go). Same fence as
+      the cmd/kubemark/** rule below (review #5 [F3]). Review #6 [F5]:
+      bare-path companions added for each per-backend proxy entry so a
+      direct import of bare pkg/proxy/iptables (canonical iptables
+      Proxier) and friends is also denied.
+    package: "k8s.io/kubernetes/cmd/kubemark"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/proxy/iptables"
+        - "k8s.io/kubernetes/pkg/proxy/iptables/**"
+        - "k8s.io/kubernetes/pkg/proxy/ipvs"
+        - "k8s.io/kubernetes/pkg/proxy/ipvs/**"
+        - "k8s.io/kubernetes/pkg/proxy/nftables"
+        - "k8s.io/kubernetes/pkg/proxy/nftables/**"
+        - "k8s.io/kubernetes/pkg/proxy/winkernel"
+        - "k8s.io/kubernetes/pkg/proxy/winkernel/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+  - description: >
+      The kubemark hollow-node simulator binary tree (cmd/kubemark/**)
+      legitimately imports pkg/kubemark/** and parts of pkg/kubelet/** to
+      fake a kubelet, AND pkg/proxy/kubemark to fake a kube-proxy — that's
+      the simulator's whole purpose. It must NOT import sibling
+      production-binary packages (controller, scheduler, kubeapiserver,
+      controlplane) nor production kube-proxy backends (iptables, ipvs,
+      nftables, winkernel). Review #3 [F4]: cmd/kubemark was the only
+      first-party deployable Kubernetes binary missing a fence; this rule
+      closes that asymmetry. Review #4 [F7]: the original `pkg/proxy/**`
+      ban over-blocked the legitimate `pkg/proxy/kubemark` import; replaced
+      with explicit per-backend denies that exclude `pkg/proxy/kubemark`.
+      Review #6 [F5]: bare-path companions added for each per-backend
+      proxy entry so an import of the bare canonical backend Proxier
+      package is also denied.
+    package: "k8s.io/kubernetes/cmd/kubemark/**"
+    shouldNotDependsOn:
+      internal:
+        - "k8s.io/kubernetes/pkg/controller"
+        - "k8s.io/kubernetes/pkg/controller/**"
+        - "k8s.io/kubernetes/pkg/scheduler"
+        - "k8s.io/kubernetes/pkg/scheduler/**"
+        - "k8s.io/kubernetes/pkg/proxy/iptables"
+        - "k8s.io/kubernetes/pkg/proxy/iptables/**"
+        - "k8s.io/kubernetes/pkg/proxy/ipvs"
+        - "k8s.io/kubernetes/pkg/proxy/ipvs/**"
+        - "k8s.io/kubernetes/pkg/proxy/nftables"
+        - "k8s.io/kubernetes/pkg/proxy/nftables/**"
+        - "k8s.io/kubernetes/pkg/proxy/winkernel"
+        - "k8s.io/kubernetes/pkg/proxy/winkernel/**"
+        - "k8s.io/kubernetes/pkg/kubeapiserver"
+        - "k8s.io/kubernetes/pkg/kubeapiserver/**"
+        - "k8s.io/kubernetes/pkg/controlplane"
+        - "k8s.io/kubernetes/pkg/controlplane/**"
+
+# =============================================================================
+# NAMING RULES
+# =============================================================================
+#
+# arch-go v1's only supported naming construct is `interfaceImplementationNamingRule`,
+# which constrains struct types that implement a named interface within the
+# matched package(s). arch-go matches `structsThatImplement` by **simple
+# interface name** (no package qualifier). Where the simple name is reused
+# across multiple sub-packages, the rule is therefore narrowed to a single
+# sub-package so it scopes to exactly one declared interface (review #2 [F7]).
+#
+namingRules:
+
+  # ---------------------------------------------------------------------------
+  # Controller implementations must be suffixed with 'Controller'.
+  #
+  # NOTE: arch-go matches `structsThatImplement` by simple interface name
+  # only. The `Interface` simple name is the canonical Kubernetes idiom
+  # (`type Interface interface { ... }` per controller sub-package), so this
+  # rule applies uniformly to every controller sub-package's `Interface`
+  # implementer. Cross-package collisions of the simple name `Interface` are
+  # therefore intentional, not a misfire (review #2 [F7]).
+  # ---------------------------------------------------------------------------
+  - description: >
+      Structs in pkg/controller/** that implement an interface literally
+      named `Interface` (the Kubernetes idiom for the canonical controller
+      type per sub-package) must be suffixed with 'Controller'. Helper,
+      option, worker, and event-handler structs that do not implement
+      `Interface` are not constrained.
+    package: "k8s.io/kubernetes/pkg/controller/**"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "Interface"
+      shouldHaveSimpleNameEndingWith: "Controller"
+
+  # ---------------------------------------------------------------------------
+  # Kubelet manager implementations: per-sub-package rules.
+  #
+  # The kubelet uses `Manager` and many `*Manager` simple names across
+  # ~13 sub-packages. arch-go cannot package-qualify the lookup, so a single
+  # rule on pkg/kubelet/** would conflate all of them. Instead, narrow each
+  # rule to a single sub-package so `structsThatImplement` resolves to one
+  # canonical interface declared in that sub-package.
+  #
+  # Review #4 [F3]: each rule's package is scoped to the BARE sub-package
+  # (omitting the `/**` suffix) because the canonical interface declaration
+  # and its primary implementing struct (e.g. `type volumeManager struct`,
+  # `type containerManagerImpl struct`, `type manager struct`) live in the
+  # bare package, not in any auxiliary sub-package (cache, populator,
+  # reconciler, fake, helpers). The `**` glob does not match the bare path,
+  # so `<X>/**` rules silently exempted exactly the structs the rules were
+  # written to constrain.
+  # ---------------------------------------------------------------------------
+  - description: >
+      Volume manager implementations in pkg/kubelet/volumemanager (the
+      bare package where the canonical VolumeManager interface and its
+      `volumeManager` implementer live) must be suffixed with 'Manager'
+      (review #4 [F3]).
+    package: "k8s.io/kubernetes/pkg/kubelet/volumemanager"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "VolumeManager"
+      shouldHaveSimpleNameEndingWith: "Manager"
+
+  - description: >
+      Image manager implementations in pkg/kubelet/images (bare package
+      where ImageManager / imageManager live) must be suffixed with
+      'Manager' (review #4 [F3]).
+    package: "k8s.io/kubernetes/pkg/kubelet/images"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "ImageManager"
+      shouldHaveSimpleNameEndingWith: "Manager"
+
+  - description: >
+      Certificate manager implementations in pkg/kubelet/certificate (bare
+      package where the canonical Manager interface lives) must be
+      suffixed with 'Manager' (review #4 [F3]).
+    package: "k8s.io/kubernetes/pkg/kubelet/certificate"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "Manager"
+      shouldHaveSimpleNameEndingWith: "Manager"
+
+  - description: >
+      Container manager implementations in pkg/kubelet/cm (bare package
+      where ContainerManager / containerManagerImpl live; review #4 [F3])
+      must be suffixed with 'Manager'. This rule targets the canonical
+      `ContainerManager` interface declared in pkg/kubelet/cm/types.go.
+      The cm sub-managers (cpumanager, memorymanager, topologymanager,
+      devicemanager, dra) each declare their own `Manager` interface and
+      are covered by the per-sub-package rules below (review #3 [F8]).
+    package: "k8s.io/kubernetes/pkg/kubelet/cm"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "ContainerManager"
+      shouldHaveSimpleNameEndingWith: "Manager"
+
+  - description: >
+      CPU manager implementations in pkg/kubelet/cm/cpumanager (bare
+      package; review #4 [F3]) must be suffixed with 'Manager'
+      (review #3 [F8]).
+    package: "k8s.io/kubernetes/pkg/kubelet/cm/cpumanager"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "Manager"
+      shouldHaveSimpleNameEndingWith: "Manager"
+
+  - description: >
+      Memory manager implementations in pkg/kubelet/cm/memorymanager (bare
+      package; review #4 [F3]) must be suffixed with 'Manager'
+      (review #3 [F8]).
+    package: "k8s.io/kubernetes/pkg/kubelet/cm/memorymanager"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "Manager"
+      shouldHaveSimpleNameEndingWith: "Manager"
+
+  - description: >
+      Topology manager implementations in pkg/kubelet/cm/topologymanager
+      (bare package; review #4 [F3]) must be suffixed with 'Manager'
+      (review #3 [F8]).
+    package: "k8s.io/kubernetes/pkg/kubelet/cm/topologymanager"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "Manager"
+      shouldHaveSimpleNameEndingWith: "Manager"
+
+  - description: >
+      Device manager implementations in pkg/kubelet/cm/devicemanager (bare
+      package; review #4 [F3]) must be suffixed with 'Manager'
+      (review #3 [F8]).
+    package: "k8s.io/kubernetes/pkg/kubelet/cm/devicemanager"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "Manager"
+      shouldHaveSimpleNameEndingWith: "Manager"
+
+  - description: >
+      Dynamic Resource Allocation manager implementations in
+      pkg/kubelet/cm/dra (bare package; review #4 [F3]) must be suffixed
+      with 'Manager' (review #3 [F8]).
+    package: "k8s.io/kubernetes/pkg/kubelet/cm/dra"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "Manager"
+      shouldHaveSimpleNameEndingWith: "Manager"
+
+  - description: >
+      ConfigMap manager implementations in pkg/kubelet/configmap (bare
+      package; review #4 [F3]) must be suffixed with 'Manager'.
+    package: "k8s.io/kubernetes/pkg/kubelet/configmap"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "Manager"
+      shouldHaveSimpleNameEndingWith: "Manager"
+
+  - description: >
+      Secret manager implementations in pkg/kubelet/secret (bare package;
+      review #4 [F3]) must be suffixed with 'Manager'.
+    package: "k8s.io/kubernetes/pkg/kubelet/secret"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "Manager"
+      shouldHaveSimpleNameEndingWith: "Manager"
+
+  - description: >
+      Status manager implementations in pkg/kubelet/status (bare package;
+      review #4 [F3]) must be suffixed with 'Manager'.
+    package: "k8s.io/kubernetes/pkg/kubelet/status"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "Manager"
+      shouldHaveSimpleNameEndingWith: "Manager"
+
+  - description: >
+      Eviction manager implementations in pkg/kubelet/eviction (bare
+      package; review #4 [F3]) must be suffixed with 'Manager'.
+    package: "k8s.io/kubernetes/pkg/kubelet/eviction"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "Manager"
+      shouldHaveSimpleNameEndingWith: "Manager"
+
+  - description: >
+      Token manager implementations in pkg/kubelet/token (bare package;
+      review #4 [F3]) must be suffixed with 'Manager'.
+    package: "k8s.io/kubernetes/pkg/kubelet/token"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "Manager"
+      shouldHaveSimpleNameEndingWith: "Manager"
+
+  - description: >
+      RuntimeClass manager implementations in pkg/kubelet/runtimeclass
+      (bare package; review #4 [F3]) must be suffixed with 'Manager'.
+    package: "k8s.io/kubernetes/pkg/kubelet/runtimeclass"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "Manager"
+      shouldHaveSimpleNameEndingWith: "Manager"
+
+  - description: >
+      ClusterTrustBundle manager implementations in
+      pkg/kubelet/clustertrustbundle (bare package; review #4 [F3]) must
+      be suffixed with 'Manager'.
+    package: "k8s.io/kubernetes/pkg/kubelet/clustertrustbundle"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "Manager"
+      shouldHaveSimpleNameEndingWith: "Manager"
+
+  - description: >
+      PodCertificate manager implementations in pkg/kubelet/podcertificate
+      (bare package; review #4 [F3]) must be suffixed with 'Manager'.
+    package: "k8s.io/kubernetes/pkg/kubelet/podcertificate"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "Manager"
+      shouldHaveSimpleNameEndingWith: "Manager"
+
+  # ---------------------------------------------------------------------------
+  # Proxy backend implementations must be suffixed with 'Proxier'.
+  #
+  # NOTE: `Proxier` is unique to pkg/proxy/types.go in upstream kubernetes;
+  # the simple-name match is unambiguous in this codebase.
+  # ---------------------------------------------------------------------------
+  - description: >
+      Structs in pkg/proxy/** that implement the Proxier interface (the
+      backend-facing interface for iptables, ipvs, nftables, and winkernel
+      implementations) must be suffixed with 'Proxier'. arch-go matches the
+      interface by simple name; verify before extending the rule that no
+      other `Proxier` interface has been introduced under pkg/proxy/**.
+    package: "k8s.io/kubernetes/pkg/proxy/**"
+    interfaceImplementationNamingRule:
+      structsThatImplement: "Proxier"
+      shouldHaveSimpleNameEndingWith: "Proxier"
+
+  # ---------------------------------------------------------------------------
+  # Removed (review #4 [F4]): previously a `Storage` simple-name
+  # `interfaceImplementationNamingRule` over `pkg/registry/**`. Removed
+  # because the upstream Kubernetes convention uses suffix `REST` for
+  # individual REST handlers (e.g., `type REST struct`,
+  # `type StatusREST struct`, `type BindingREST struct`,
+  # `type LogREST struct`, `type ProxyREST struct`,
+  # `type EvictionREST struct`, `type EphemeralContainersREST struct`)
+  # and only the multiplexer-aggregator struct uses suffix `Storage`
+  # (e.g., `type PodStorage struct`). arch-go's single-suffix matcher
+  # cannot express both, and `Storage` matches the canonical
+  # `staging/src/k8s.io/apiserver/pkg/registry/rest/rest.go` Storage
+  # interface — every REST handler implements it, so the rule would
+  # produce hundreds of false positives across the registry tree the
+  # moment coverage rises above 0%. Track REST/Storage naming via PR
+  # review until arch-go grows multi-suffix or contents-rule support.
+  # ---------------------------------------------------------------------------
+
+# =============================================================================
+# FUNCTIONS RULES
+# =============================================================================
+#
+# Function-complexity caps below are calibrated against the upstream
+# kubernetes baseline (review #2 [F2]). The util cap was raised from 100 to
+# 250 to accommodate state-machine implementations (iptables, ipvs,
+# conntrack) that legitimately don't decompose smaller. The apis cap was
+# raised from 200 to 350 to accommodate validators (ValidatePodSpec,
+# ValidatePersistentVolumeClaim) that collect ~30 field-level checks.
+# Functions exceeding these limits are still treated as refactoring signals.
+#
+# Review #3 [F5] note: until the Makefile coverage floor produces a non-zero
+# COVERAGE RATE on a real upstream checkout, both rules pass vacuously.
+# Concrete upstream functions expected to violate the caps post-coverage:
+#   - pkg/apis/core/validation/validation.go: ValidatePodSpec,
+#     ValidatePodTemplateSpec, ValidatePersistentVolumeSpec  (>350 lines)
+#   - pkg/apis/networking/validation/validation.go:
+#     validateIngressBackend, ValidateNetworkPolicySpec
+#   - pkg/util/iptables/iptables.go: (*runner).restoreInternal (>250 lines)
+# If the rules pass after coverage rises above 0%, the caps are too generous
+# and should be tightened until they bite a known offender.
+functionsRules:
+
+  # ---------------------------------------------------------------------------
+  # Utility functions must stay simple
+  # ---------------------------------------------------------------------------
+  - description: >
+      Shared utility functions in pkg/util/** should be focused, single-
+      purpose helpers. We cap return values at 5 and length at 250 lines as
+      a structural ceiling calibrated against upstream baselines (iptables /
+      ipvs state-machine helpers); functions that exceed these limits are
+      signals to refactor into smaller composable helpers. Review #3 [F5]:
+      cap remains unverified empirically until Makefile coverage rises above
+      zero — expected to flag (*runner).restoreInternal in iptables.
+    package: "k8s.io/kubernetes/pkg/util/**"
+    maxReturnValues: 5
+    maxLines: 250
+
+  # ---------------------------------------------------------------------------
+  # API validation functions should compose, not branch
+  # ---------------------------------------------------------------------------
+  - description: >
+      Validation functions in pkg/apis/** collect field errors and return
+      them. We cap return values at 8 and length at 350 lines, calibrated
+      against upstream baselines (ValidatePodSpec, ValidatePersistentVolumeClaim);
+      functions that exceed these limits indicate validation logic that
+      should be split into composable validators rather than written as
+      monolithic if-else chains. Review #3 [F5]: cap remains unverified
+      empirically — expected to flag ValidatePodSpec / ValidatePodTemplateSpec
+      / ValidatePersistentVolumeSpec / validateIngressBackend /
+      ValidateNetworkPolicySpec once coverage rises above zero. If they do
+      not violate post-coverage, tighten the cap until they do.
+    package: "k8s.io/kubernetes/pkg/apis/**"
+    maxReturnValues: 8
+    maxLines: 350
