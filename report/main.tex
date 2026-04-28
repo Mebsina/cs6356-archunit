@@ -254,7 +254,7 @@ Collectively, these studies demonstrate that current approaches face two compoun
 
 
 \section{Solution}
-We propose an automated enforcement pipeline that translates recovered software architectures into executable build-time constraints, see Figure~\ref{fig:solution}. Our approach takes existing architecture representations and converts them into ArchUnit test rules that continuously validate code changes against the intended design. The pipeline builds on existing architecture documentation to extend the rule-learning approach of Schindler and Rausch \cite{schindler2024}. Rather than stopping at one-time discovery, it converts these architectural rules into continuous, automated enforcement. The main goal is to prevent architectural drift before it is merged into production rather than recovering architecture reactively. 
+We propose an automated enforcement pipeline that translates recovered software architectures into executable build-time constraints, see Figure~\ref{fig:solution}. The pipeline takes an architecture representation and a project package structure. It prompts an LLM to generate enforceable rules in the native format of deterministic tools. For Java repositories, it generates ArchUnit test suites. For Go repositories, it generates arch-go configurations. This extends the rule-learning approach of Schindler and Rausch \cite{schindler2024} by operationalizing learned constraints as continuously executable checks. The goal is to prevent architectural drift before it is merged into production rather than recovering architecture reactively. The LLM acts as a translator. ArchUnit and arch-go act as deterministic judges.
 
 \begin{figure*}[t]
     \centering
@@ -264,108 +264,267 @@ We propose an automated enforcement pipeline that translates recovered software 
 \end{figure*}
 
 \subsubsection{Input}
-A set of target software repositories, their package directory structures, and corresponding architecture representations. The architecture representations are sourced from publicly available architectural documentation used as ground truth in the ArchAgent benchmark where available, or from equivalent documentation and recovery outputs for each project. The pipeline is designed to accept any architecture representation, including output from LLM-based recovery tools such as ArchAgent, manually authored documentation, or Mermaid diagrams. The evaluation is conducted across six large-scale, real-world systems: HashiCorp Consul, Spring Framework, Apache ZooKeeper, Kubernetes, Apache Kafka, and Istio. These projects were selected due to their scale, active development, and availability of architectural documentation that can be mapped to their source code structure, enabling a broader assessment of the pipeline’s generalizability beyond a single repository.
+\begin{itemize}
+    \item Target software repositories
+    \begin{itemize}
+        \item Java: Spring Framework and Apache ZooKeeper
+        \item Go: HashiCorp Consul
+    \end{itemize}
+    \item Ground truth architecture documentation provided by the ArchAgent benchmark for each target repository
+    \item Extracted package directory structures and package structure listings from the source tree
+\end{itemize}
 
 \subsubsection{Output}
-A set of generated ArchUnit test classes that encode the intended architecture as enforceable dependency constraints, along with a validation report identifying which constraints hold and which are violated across the current codebase and open pull requests.
+\begin{itemize}
+    \item Executable enforcement artifacts that encode the intended architecture as deterministic dependency constraints
+    \item Java artifacts
+    \begin{itemize}
+        \item ArchUnit test suite
+        \item Standalone Maven test harness
+    \end{itemize}
+    \item Go artifacts
+    \begin{itemize}
+        \item arch-go YAML rule file
+        \item Standalone Makefile that runs \texttt{arch-go check}
+    \end{itemize}
+    \item Supporting reports for review and analysis that record compilation fixes, adversarial review findings, and violation triage results
+\end{itemize}
 
 \subsubsection{Algorithm and Data Transformations}
 \begin{enumerate}
-    \item Architecture and Structure Collection: The system collects two inputs. First, the architecture representation describing modules, layers, and their allowed dependencies. Second, the repository's package directory tree, extracted via standard file system traversal.
-    \item LLM-Based Rule Generation and Cross-Validation: Using the Cursor IDE chat interface, the researcher provides the architecture representation and package directory tree as context and prompts the first model to generate ArchUnit test rules that enforce the documented dependency constraints. The generated rules are then sent to a second, different model along with the original architecture document for adversarial review. The second model verifies that every documented constraint has a corresponding rule, flags any missing or overly broad rules that would trivially pass, and identifies any incorrect package mappings. Feedback from the second model is fed back to the first model for regeneration. The final rules are compiled to verify syntactic correctness, with any compilation failures fed back to the model for self-correction.
-    \item Baseline Validation: The generated ArchUnit tests are executed against the current main branch of the repository to establish a clean baseline. Failures are investigated and categorized as either real architectural violations or mapping errors from the generation step.
-    \item Pull Request Evaluation: Open pull requests are fetched and checked out locally. The same ArchUnit rules are executed against each PR branch. Any new violations that were not present in the baseline indicate that the PR would introduce architectural drift if merged.
-    \item Model Comparison: The rule generation step is repeated using LLMs of varying sizes, such as GPT-4o, Claude Sonnet, and Claude Opus, to evaluate whether smaller, cheaper models can produce equally correct enforcement rules.
+    \item Input collection: Collect the ground truth architecture documentation and the extracted package structure for the target repository.
+    \item Rule generation: Provide the documentation and package structure to an LLM and generate enforcement artifacts. Java outputs are ArchUnit test suites and a standalone Maven test harness. Go outputs are arch-go YAML rules and a standalone Makefile.
+    \item Compilation fix loop: Execute the generated artifacts. If the build fails, provide the compilation errors to the model and regenerate the artifacts. Record each correction in the fix history.
+    \item Adversarial review and patching: Send the generated rules to a reviewer model for adversarial review against the same documentation. Use \texttt{claude-opus-4-7} as the reviewer model. Apply the recommended patches and record the changes in the fix history.
+    \item Baseline validation and triage loop: Run the rules against the repository baseline and collect violations. Use the violation analysis prompt to triage each violation as a mapping error or a real violation using the ground truth documentation. Patch mapping errors and rerun until mapping errors reach zero.
+    \item Calibration: Use the final thoughts prompt to write a final alignment pass. State what the passing rules prove. State what remains uncertain due to documentation gaps.
+    \item Pull request evaluation: Fetch open pull requests and run the same enforcement artifacts on each pull request branch. Compare results against the baseline. Report new violations introduced by each pull request.
+    \item Model comparison: Repeat the pipeline using \texttt{gemini-3-flash} and \texttt{claude-sonnet-4-6} for generation. Use \texttt{claude-opus-4-7} for review. Compare the resulting enforcement suites and fix histories.
 \end{enumerate}
 
 \subsubsection{SME Data Incorporated}
-The solution incorporates architectural ground truth from public documentation and recovery tools, package-level structural data extracted from the repository, and real pull request data from active open-source development.
+The solution incorporates ground truth architecture documentation from the ArchAgent benchmark, package-level structural data extracted from each repository, and pull request branches used to evaluate drift introduced by proposed changes.
 
 \section{Justification}
-The technical motivation for this solution stems from a critical gap in the current architecture recovery landscape. As highlighted by Pan et al.~\cite{pan2026}, LLMs suffer from severe local-scope bias and cannot hold an entire system dependency matrix in their context window. Tools like ArchAgent have demonstrated that accurate recovery is achievable despite these limitations, yet recovered architectures carry no enforcement mechanism. Without continuous validation, the same development pressures that caused the original drift will inevitably degrade the recovered architecture again, creating a costly cycle of repeated recovery.
+The technical motivation for this solution stems from a critical gap in the current architecture recovery landscape. As highlighted by Pan et al.~\cite{pan2026}, LLMs suffer from local scope bias and cannot hold an entire system dependency matrix in their context window. ArchAgent demonstrates that accurate recovery is achievable despite these limitations. Recovered architectures still lack an enforcement mechanism. Without continuous validation, the same development pressures that caused drift will degrade the recovered architecture again.
 
-This solution makes sense because it shifts architectural governance from a reactive diagnosis to a proactive safeguard. Previous work by Tessa et al.~\cite{tessa2025} demonstrated that LLMs have poor precision when evaluating architectural patterns and cannot reliably distinguish intended design from problematic structures. Li et al.~\cite{li2023} further showed that detecting violations through developer discussions only captures drift that humans have already noticed. Our approach bypasses both limitations by removing the LLM from the evaluation role entirely. The LLM acts purely as a translator, converting a known architecture into ArchUnit rules. ArchUnit then serves as a deterministic judge, producing strict pass or fail results with no ambiguity and no hallucination risk. This separation of concerns ensures that the accuracy of drift detection depends on the well-established ArchUnit framework rather than on the reasoning capability of any language model.
+This solution makes sense because it shifts architectural governance from a reactive diagnosis to a proactive safeguard. Prior work shows that LLMs are not reliable judges of architectural conformance. They can be accurate translators when given ground truth constraints. This pipeline uses an LLM to translate documentation into executable constraints. Deterministic tools then evaluate the code. ArchUnit serves as the judge for Java repositories. arch-go serves as the judge for Go repositories. This separation reduces ambiguity and removes hallucination risk from the pass or fail decision.
 
-Additionally, the pipeline incorporates a cross-model validation step in which a second, independent model reviews the generated rules against the original architecture document before execution. This adversarial review ensures that the first model does not produce rules that are overly broad or trivially passing, adding a further layer of separation between generation and evaluation.
+The pipeline also includes cross model validation. A reviewer model audits the generated rules against the same documentation. This adversarial review targets missing constraints, incorrect mappings, and rules that would pass vacuously. The review results are applied as patches and recorded in the fix history.
 
-Furthermore, by testing the rule generation step across multiple model sizes, this project demonstrates that the enforcement pipeline does not require the expensive large-scale models used in the recovery phase. This makes proactive architectural governance accessible to development teams regardless of their computational resources.
+Model comparison strengthens the justification. Rule generation is evaluated using \texttt{gemini-3-flash} and \texttt{claude-sonnet-4-6}. \texttt{claude-opus-4-7} is used as the reviewer model. This shows whether smaller generation models can still produce enforceable constraints when paired with deterministic enforcement and an adversarial review step.
 
 \section{Design and Implementation}
 \subsubsection{Type of Tool}
-An experimental workflow utilizing the Cursor IDE for LLM-powered rule generation and specific language deterministic architectural validation.
+\begin{itemize}
+    \item IDE based workflow driven by prompt templates
+    \item Command line enforcement checks that run during validation
+    \item Repository scoped enforcement artifacts that can be run locally or in CI
+\end{itemize}
 
 \subsubsection{Technologies}
-The Cursor IDE for LLM-based generation of ArchUnit test rules, supporting multiple foundation models such as GPT-4o, Claude Sonnet, and Claude Opus for the model comparison evaluation. ArchUnit for deterministic architectural constraint enforcement. Gradle for compiling and executing the generated test suites against the target Java repositories. Git for fetching and checking out open pull requests during the evaluation phase.
+\begin{itemize}
+    \item Development environment
+    \begin{itemize}
+        \item Cursor IDE
+    \end{itemize}
+    \item Enforcement libraries
+    \begin{itemize}
+        \item Java: ArchUnit
+        \item Go: arch-go
+    \end{itemize}
+    \item Execution harnesses
+    \begin{itemize}
+        \item Java: standalone Maven harness
+        \item Go: standalone Makefile harness that runs \texttt{arch-go check}
+    \end{itemize}
+    \item Source control
+    \begin{itemize}
+        \item Git
+    \end{itemize}
+    \item Models
+    \begin{itemize}
+        \item Generation models: \texttt{gemini-3-flash} and \texttt{claude-sonnet-4-6}
+        \item Reviewer model: \texttt{claude-opus-4-7}
+    \end{itemize}
+\end{itemize}
 
 \subsubsection{Architecture}
-The workflow consists of four main stages. The Input Collection stage gathers the architecture representation and extracts the package directory tree from the target repository. The Rule Generation stage uses the Cursor IDE chat interface, where the researcher provides the architecture diagram and package structure as context and prompts a first model to generate ArchUnit test classes. A second, different model then reviews the generated rules against the original architecture document to flag missing constraints, overly broad rules, or incorrect package mappings. Feedback is incorporated before final compilation. If the generated code fails to compile, the compilation errors are fed back through Cursor for self-correction. The Baseline Validation stage executes the generated ArchUnit rules against the repository's main branch using Gradle to establish a clean baseline of passing and failing constraints. The PR Evaluation stage fetches open pull requests, checks them out locally, reruns the same ArchUnit rules, and flags any new violations introduced by the proposed changes.
+\begin{itemize}
+    \item Inputs
+    \begin{itemize}
+        \item ArchAgent ground truth architecture documentation
+        \item Extracted package structure for the target repository
+    \end{itemize}
+    \item Generation and correction
+    \begin{itemize}
+        \item Generate Java ArchUnit tests or Go arch-go rules
+        \item Fix compilation failures and record changes in the fix history
+        \item Review rules against the same documentation and apply patches
+    \end{itemize}
+    \item Validation and evaluation
+    \begin{itemize}
+        \item Run against a baseline and triage violations until mapping errors reach zero
+        \item Produce a final thoughts calibration report
+        \item Run on pull request branches and report new drift
+    \end{itemize}
+\end{itemize}
 
 \subsubsection{Interaction Mechanism}
-The researcher interacts with the Cursor IDE chat interface to provide architectural context and direct the model to generate ArchUnit rules. The researcher reviews the generated rules for correctness before adding them to the project's test directory. Validation is executed through the terminal using Gradle. For the model comparison evaluation, the researcher repeats the generation step using different foundation models available within Cursor and compares the correctness of the generated rules across model sizes.
+\begin{enumerate}
+    \item The ArchAgent documentation and extracted package structure are provided as prompt inputs
+    \item The generation prompt is executed to produce enforcement artifacts
+    \item The compilation fix prompt is applied when builds fail
+    \item The review prompt is executed and the resulting patches are integrated
+    \item The violation analysis prompt is iterated until mapping errors reach zero
+    \item The final thoughts prompt is executed for output calibration
+    \item The artifacts are deployed on pull request branches and validated against the baseline
+\end{enumerate}
+
+\section{Limitations}
+\begin{itemize}
+    \item Inputs
+    \begin{itemize}
+        \item Incomplete coverage: The ground truth documentation does not specify every package and dependency present in the current codebase.
+        \item Ambiguity: Some constraints are described at a high level, so mapping to concrete packages requires judgment.
+        \item Staleness: The documentation may lag behind the current repository version, so some violations may reflect documentation drift rather than code drift.
+        \item Granularity mismatch: The documentation may define subsystems while enforcement operates on packages and import paths.
+    \end{itemize}
+    \item Outputs
+    \begin{itemize}
+        \item Over strict or over permissive rules: Generated constraints can block legitimate dependencies or miss real drift.
+        \item Vacuous constraints risk: Rules can execute successfully while failing to meaningfully constrain the architecture.
+        \item LLM hallucination: Generated artifacts can reference functions, classes, or configuration fields that do not exist.
+        \item Mapping sensitivity: Incorrect package mappings can produce outputs that enforce the wrong boundaries.
+        \item Fragility to refactors: Package restructuring can require rule updates even when architectural intent is unchanged.
+        \item Execution scope limits: The checks only cover the code included in the configured build and scan scope.
+    \end{itemize}
+    \item Systems and datasets
+    \begin{itemize}
+        \item Scope of evaluated systems: The replication package contains completed artifacts for Spring Framework, Apache ZooKeeper, and HashiCorp Consul only.
+        \item Documentation dependency: The approach assumes the availability of ArchAgent benchmark ground truth documentation for each target repository.
+    \end{itemize}
+    \item Language support
+    \begin{itemize}
+        \item Supported languages: Java and Go
+        \item Not supported: Other languages and enforcement frameworks are out of scope in this implementation.
+    \end{itemize}
+    \item Evaluation limitations
+    \begin{itemize}
+        \item Cost and API usage: The workflow depends on paid IDE access and constrained API usage.
+        \item Pull request availability: Drift detection depends on the availability and representativeness of open pull requests.
+        \item Manual judgment: Some mapping decisions require manual review when documentation is ambiguous or outdated.
+    \end{itemize}
+\end{itemize}
 
 \section{Methodology}
 \subsection{Evaluation Goal}
-To demonstrate that recovered software architectures can be automatically translated into enforceable build-time constraints that detect architectural drift in both human-written and AI-generated code changes before they are merged into production.
+To demonstrate that ground truth architecture documentation can be translated into enforceable build time constraints. The constraints are executed as deterministic checks for Java and Go repositories. The evaluation measures whether the checks detect drift in pull requests before merge.
 
 \subsection{Research Questions}
 \begin{enumerate}
-    \item RQ1: Can LLMs accurately translate a recovered architecture representation into correct and compilable ArchUnit rules that reflect the intended dependency constraints?
-    \item RQ2: Do the generated ArchUnit rules successfully detect architectural violations in open pull requests against the target repositories?
-    \item RQ3: Does the accuracy of the generated rules vary significantly across LLMs of different sizes, and can smaller, cheaper models produce enforcement rules of comparable quality to larger models?
+    \item RQ1: Can LLMs translate ground truth architecture documentation into correct and executable enforcement artifacts for Java and Go repositories?
+    \item RQ2: Do the generated enforcement artifacts detect new architectural violations in open pull requests when compared against a baseline run on the main branch?
+    \item RQ3: For rule generation, how do \texttt{gemini-3-flash} and \texttt{claude-sonnet-4-6} compare in correctness and effort when paired with a \texttt{claude-opus-4-7} reviewer model?
 \end{enumerate}
 
 \subsection{Success Criteria}
     \begin{enumerate}
-    \item RQ1 will be considered positively answered if the generated ArchUnit rules achieve a Compilation Success Rate above 90\% after the self-correction loop and a Rule Generation Accuracy above 80\% when compared against a manually verified reference set of architectural constraints.
-    \item RQ2 will be considered positively answered if the generated rules successfully identify at least one legitimate architectural violation in an open pull request that was not present in the main branch baseline. If no violations are found in existing pull requests, the pipeline must detect a deliberately introduced cross-layer dependency in a controlled fork, confirming that the enforcement mechanism functions as intended.
-    \item RQ3 will be considered positively answered if the smallest model tested achieves a Rule Generation Accuracy within 10 percentage points of the largest model, demonstrating that the enforcement step does not require expensive large-scale models.
+    \item RQ1 will be considered positively answered if the generated artifacts execute successfully. The Java artifacts must compile and run under the Maven harness. The Go artifacts must run under the Makefile harness and arch-go. Mapping errors must be reduced to zero in the triage loop.
+    \item RQ2 will be considered positively answered if the artifacts detect at least one new violation in an open pull request that is not present in the baseline. If no open pull requests trigger violations, the pipeline must detect a deliberately introduced violation in a controlled fork.
+    \item RQ3 will be considered positively answered if \texttt{gemini-3-flash} and \texttt{claude-sonnet-4-6} both reach a stable enforcement suite. The comparison uses the same reviewer model and the same target repositories. The outcome is reported using the resulting artifacts and fix histories.
 \end{enumerate}
 
 \subsection{Datasets}
-Six repositories selected from the benchmark projects evaluated in the ArchAgent study. These repositories have verified architectural ground truth, span multiple domains such as distributed systems, web frameworks, and data processing, and range from approximately 1,000 to 22,000 source files.
+\begin{itemize}
+    \item Java repositories
+    \begin{itemize}
+        \item Spring Framework
+        \item Apache ZooKeeper
+    \end{itemize}
+    \item Go repositories
+    \begin{itemize}
+        \item HashiCorp Consul
+    \end{itemize}
+    \item Ground truth architecture documentation from the ArchAgent benchmark for each repository
+\end{itemize}
 
 \subsection{Metrics}
 \begin{itemize}
-    \item Rule Generation Accuracy: The percentage of generated ArchUnit rules that correctly encode the intended architectural constraints, measured against a manually verified reference set.
-    \item Cross-Validation Catch Rate: The number of missing, overly broad, or incorrectly mapped rules identified by the second model during the adversarial review step, measuring the value added by cross-model validation.
-    \item Compilation Success Rate: The percentage of generated ArchUnit test classes that compile without errors on the first attempt, and after the self-correction loop.
-    \item Violation Detection Rate: The number of architectural violations identified in open pull requests that were not present in the main branch baseline.
-    \item Cross-Model Consistency: The variance in Rule Generation Accuracy across LLMs of different sizes, measuring whether smaller models produce comparable enforcement rules.
+    \item Execution success: Whether Java artifacts compile and run under Maven, and whether Go artifacts run under Make and arch-go.
+    \item Mapping error count: The number of violation patterns classified as mapping errors at each triage iteration until the count reaches zero.
+    \item Cross model catch rate: The number of missing or incorrect constraints identified by the reviewer model during adversarial review.
+    \item Pull request drift detection: The number of new violations in pull request branches that are not present in the baseline.
+    \item Effort and convergence: The number of compilation and review fixes recorded in the fix history before reaching a stable suite.
 \end{itemize}
 
 \subsection{Procedures}
-For each target repository, the researcher collects the architecture representation and extracts the package directory tree. Using the Cursor IDE chat interface, the researcher provides both inputs as context and prompts a first model to generate ArchUnit test rules. The generated rules are then reviewed by a second, different model against the original architecture document to flag missing constraints, weak rules, or incorrect mappings. After incorporating the feedback, the rules are compiled and any compilation failures are fed back for self-correction. Once the rules compile successfully, they are reviewed manually and then executed against the main branch to establish a baseline. Open pull requests are then fetched and checked out locally, and the same rules are executed against each PR branch. New violations not present in the baseline are recorded as instances of architectural drift that the pipeline would have prevented. This process is repeated using multiple foundation models available in Cursor to evaluate cross-model consistency.
-
-\section{Preliminary Results}
-As an initial proof of concept, we plan to select one Java repository from the ArchAgent benchmark and perform a single iteration of the pipeline. The architecture representation will be sourced from public documentation, and the package directory tree will be extracted from the repository's main branch. Using the Cursor IDE, we will prompt a foundation model to generate ArchUnit test rules based on both inputs.
-
-We expect the model to generate compilable ArchUnit test classes that encode layer dependency constraints matching the documented architecture. Execution against the main branch should confirm whether the current codebase conforms to its documented architecture. Any failures will be investigated and categorized as either legitimate violations where the code has drifted from the intended design, or mapping errors where the model assigned a package to the wrong architectural module.
-
-If the core translation step proves feasible, the remaining evaluation steps, including pull request validation and cross-model comparison, will be conducted in the full study to answer the research questions comprehensively.
-Research Question 1 will be answered by measuring the Rule Generation Accuracy and Compilation Success Rate across the target repositories. Research Question 2 will be answered by executing the generated rules against open pull requests and recording any new violations not present in the baseline. Research Question 3 will be answered by repeating the rule generation step with models of varying sizes and comparing their Rule Generation Accuracy and Compilation Success Rate. 
-
-\section{Project plan}
-This project is designed for a two-researcher team.
-
-\subsection{Projected Activities \& Estimated Time of Completion}
 \begin{enumerate}
-    \item Week 1: Repository Selection and Rule Generation. Select 1 to 2 Java repositories from the ArchAgent benchmark that have verified architectural ground truth. Clone the repositories, extract the package directory trees, and collect the corresponding architecture representations from public documentation or ArchAgent output. Using the Cursor IDE, prompt a first foundation model to generate ArchUnit test classes, then submit the generated rules to a second model for adversarial review against the architecture documentation. Iterate based on the feedback and resolve any compilation errors. Iterate on the prompt to resolve any compilation errors and manually review the generated rules against the architecture documentation. Expected Outcome: A compilable and reviewed set of ArchUnit test rules for each repository.
-    \item Week 2: Baseline Validation and Pull Request Evaluation. Execute the generated ArchUnit rules against each repository's main branch to establish a clean baseline. Investigate and categorize any failures as legitimate violations or mapping errors. Fetch open pull requests, check them out locally, rerun the rules, and record any new violations introduced by the proposed changes. Expected Outcome: A dataset of baseline results and pull request evaluation findings.
-    \item Week 3: Expanded Repository Evaluation. Select 4 to 5 additional repositories from the ArchAgent benchmark. Repeat the rule generation, baseline validation, and pull request evaluation processes established in the first two weeks. Expected Outcome: An expanded dataset of generated rules, baseline results, and pull request findings.
-    \item Week 4: Model Comparison and Analysis. Repeat the rule generation step using different foundation models available in Cursor to evaluate cross-model consistency. Compare Rule Generation Accuracy, Compilation Success Rate, and Violation Detection Rate across models and repositories. Expected Outcome: Quantitative evaluation results addressing all three research questions.
-    \item Week 5: Final Report Writing. Synthesize the findings, discuss the implications for proactive architectural governance, and format the final project paper. Expected Outcome: Completed project report.
+    \item Select a target repository and obtain the ArchAgent ground truth documentation.
+    \item Extract the repository package structure used for mapping constraints to packages and import paths.
+    \item Generate enforcement artifacts using the generation prompt.
+    \begin{itemize}
+        \item Java repositories produce ArchUnit artifacts executed using the Maven harness.
+        \item Go repositories produce arch-go artifacts executed using the Makefile harness and \texttt{arch-go check}.
+    \end{itemize}
+    \item Resolve build failures using the compilation fix prompt. Record each change in the fix history.
+    \item Run adversarial review using \texttt{claude-opus-4-7}. Apply review patches and record changes in the fix history.
+    \item Establish a baseline by executing the artifacts on the main branch and recording violations.
+    \item Evaluate open pull requests by checking out each pull request branch and executing the same artifacts. Record new violations that are not present in the baseline.
+    \item Repeat the procedure for model comparison using \texttt{gemini-3-flash} and \texttt{claude-sonnet-4-6} as generation models while keeping \texttt{claude-opus-4-7} as the reviewer model.
 \end{enumerate}
 
-\subsection{Scope of Project}
-\subsubsection{Potential Risks \& Mitigations}
+\section{Empirical evaluation}
+\subsection{Evaluation results}
+\begin{itemize}
+    \item \due{Summary of baseline results for Spring Framework}
+    \item \due{Summary of baseline results for Apache ZooKeeper}
+    \item \due{Summary of baseline results for HashiCorp Consul}
+    \item \due{Summary of pull request evaluation results and new drift detected}
+    \item \due{Summary of model comparison results for \texttt{gemini-3-flash} and \texttt{claude-sonnet-4-6}}
+\end{itemize}
+
+\subsection{Discussion}
+\begin{itemize}
+    \item \due{Interpretation of major findings}
+    \item \due{Explanations for failures, mapping errors, and fixes}
+    \item \due{Implications for preventing architectural drift}
+\end{itemize}
+
+\subsection{Answers to research questions}
 \begin{enumerate}
-    \item Incorrect Package Mapping. The LLM may map architectural modules to the wrong Java packages, producing rules that flag false violations or miss real ones. Mitigation: The researcher will manually review all generated rules against the architecture documentation before execution. Repositories with clean and descriptive package naming will be prioritized to reduce mapping ambiguity.
-    \item Insufficient Violations in Pull Requests. Well-maintained repositories such as those in the ArchAgent benchmark may have few open pull requests that introduce architectural drift. Mitigation: If no violations are found in existing pull requests, the researcher will create a sample fork with an intentional cross-layer dependency violation to demonstrate the detection capability of the pipeline.
-    \item API Costs and Rate Limits. Repeated rule generation across multiple models may incur high API costs or hit rate limits within the Cursor IDE. Mitigation: The scope is constrained to 2 to 3 repositories and a maximum of 3 models. If limits are reached, the project will fall back to using free tier APIs such as the Anthropic free tier or Google AI Studio for Gemini.
+    \item \due{Answer to RQ1}
+    \item \due{Answer to RQ2}
+    \item \due{Answer to RQ3}
 \end{enumerate}
 
-\subsubsection{Exclusions}
-The project scope is limited to evaluating repositories with documented layered or modular architectures. The assessment focuses exclusively on structural dependency constraints such as layer violations and forbidden cross-module dependencies, and excludes other code quality metrics like performance optimization or security vulnerabilities. The project does not aim to improve or replace the architecture recovery step, which is treated as a prerequisite input. Due to time constraints, the evaluation will test a maximum of three foundation models via the Cursor IDE rather than an exhaustive comparison of all available models.
+\subsection{Threats to validity}
+\begin{itemize}
+    \item \due{Internal validity threats}
+    \item \due{External validity threats}
+    \item \due{Construct validity threats}
+    \item \due{Conclusion validity threats}
+\end{itemize}
+
+\subsection{Examples of correct and incorrect cases}
+\begin{itemize}
+    \item \due{Example of a correct case}
+    \item \due{Example of an incorrect case}
+\end{itemize}
+
+\section{Conclusions and future work}
+\begin{itemize}
+    \item Conclusions
+    \begin{itemize}
+        \item \due{Explicit conclusions from the project}
+        \item \due{Lessons learned about enforcement quality and drift detection}
+    \end{itemize}
+    \item Future work
+    \begin{itemize}
+        \item \due{Future research activities to improve documentation alignment and rule robustness}
+        \item \due{Future evaluation activities such as more repositories, more PRs, and additional languages}
+    \end{itemize}
+\end{itemize}
 
 
 
