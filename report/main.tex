@@ -1,0 +1,600 @@
+%%
+%% This is file `sample-manuscript.tex',
+%% generated with the docstrip utility.
+%%
+%% The original source files were:
+%%
+%% samples.dtx  (with options: `manuscript')
+%% 
+%% IMPORTANT NOTICE:
+%% 
+%% For the copyright see the source file.
+%% 
+%% Any modified versions of this file must be renamed
+%% with new filenames distinct from sample-manuscript.tex.
+%% 
+%% For distribution of the original source see the terms
+%% for copying and modification in the file samples.dtx.
+%% 
+%% This generated file may be distributed as long as the
+%% original source files, as listed above, are part of the
+%% same distribution. (The sources need not necessarily be
+%% in the same archive or directory.)
+%%
+%% Commands for TeXCount
+%TC:macro \cite [option:text,text]
+%TC:macro \citep [option:text,text]
+%TC:macro \citet [option:text,text]
+%TC:envir table 0 1
+%TC:envir table* 0 1
+%TC:envir tabular [ignore] word
+%TC:envir displaymath 0 word
+%TC:envir math 0 word
+%TC:envir comment 0 0
+%%
+%%
+%% The first command in your LaTeX source must be the \documentclass command.
+%%%% Small single column format, used for CIE, CSUR, DTRAP, JACM, JDIQ, JEA, JERIC, JETC, PACMCGIT, TAAS, TACCESS, TACO, TALG, TALLIP (formerly TALIP), TCPS, TDSCI, TEAC, TECS, TELO, THRI, TIIS, TIOT, TISSEC, TIST, TKDD, TMIS, TOCE, TOCHI, TOCL, TOCS, TOCT, TODAES, TODS, TOIS, TOIT, TOMACS, TOMM (formerly TOMCCAP), TOMPECS, TOMS, TOPC, TOPLAS, TOPS, TOS, TOSEM, TOSN, TQC, TRETS, TSAS, TSC, TSLP, TWEB.
+% \documentclass[acmsmall]{acmart}
+
+%%%% Large single column format, used for IMWUT, JOCCH, PACMPL, POMACS, TAP, PACMHCI
+% \documentclass[acmlarge,screen]{acmart}
+
+%%%% Large double column format, used for TOG
+% \documentclass[acmtog, authorversion]{acmart}
+
+%%%% Generic manuscript mode, required for submission
+%%%% and peer review
+\documentclass[sigconf,screen,review]{acmart}
+%% Fonts used in the template cannot be substituted; margin 
+%% adjustments are not allowed.
+%%
+%% \BibTeX command to typeset BibTeX logo in the docs
+\AtBeginDocument{%
+  \providecommand\BibTeX{{%
+    \normalfont B\kern-0.5em{\scshape i\kern-0.25em b}\kern-0.8em\TeX}}}
+
+%% Rights management information.  This information is sent to you
+%% when you complete the rights form.  These commands have SAMPLE
+%% values in them; it is your responsibility as an author to replace
+%% the commands and values with those provided to you when you
+%% complete the rights form.
+% \setcopyright{acmcopyright}
+% \copyrightyear{2026}
+% \acmYear{2026}
+% \acmDOI{XXXXXXX.XXXXXXX}
+
+%% These commands are for a PROCEEDINGS abstract or paper.
+% \acmConference[Conference acronym 'XX]{2026}{Dallas, TX}
+%
+%  Uncomment \acmBooktitle if th title of the proceedings is different
+%  from ``Proceedings of ...''!
+%
+% \acmBooktitle{Woodstock '18: ACM Symposium on Neural Gaze Detection,
+%  June 03--05, 2018, Woodstock, NY} 
+% \acmPrice{15.00}
+% \acmISBN{978-1-4503-XXXX-X/18/06}
+
+
+%%
+%% Submission ID.
+%% Use this when submitting an article to a sponsored event. You'll
+%% receive a unique submission ID from the organizers
+%% of the event, and this ID should be used as the parameter to this command.
+%%\acmSubmissionID{123-A56-BU3}
+
+%%
+%% For managing citations, it is recommended to use bibliography
+%% files in BibTeX format.
+%%
+%% You can then either use BibTeX with the ACM-Reference-Format style,
+%% or BibLaTeX with the acmnumeric or acmauthoryear sytles, that include
+%% support for advanced citation of software artefact from the
+%% biblatex-software package, also separately available on CTAN.
+%%
+%% Look at the sample-*-biblatex.tex files for templates showcasing
+%% the biblatex styles.
+%%
+
+%%
+%% The majority of ACM publications use numbered citations and
+%% references.  The command \citestyle{authoryear} switches to the
+%% "author year" style.
+%%
+%% If you are preparing content for an event
+%% sponsored by ACM SIGGRAPH, you must use the "author year" style of
+%% citations and references.
+%% Uncommenting
+%% the next command will enable that style.
+%%\citestyle{acmauthoryear}
+
+\newcommand{\blue}[1]{{\color{blue}#1}}
+\newcommand{\due}[1]{\blue{[FILL FOR {#1}]}}
+
+
+%%
+%% end of the preamble, start of the body of the document source.
+\begin{document}
+
+%%
+%% The "title" command has an optional parameter,
+%% allowing the author to define a "short title" to be used in page headers.
+\title{Drift Blindness in AI Models}
+
+%%
+%% The "author" command and its associated commands are used to define
+%% the authors and their affiliations.
+%% Of note is the shared affiliation of the first two authors, and the
+%% "authornote" and "authornotemark" commands
+%% used to denote shared contribution to the research.
+
+\author{Valentijn Van Overveld}
+\authornote{All authors contributed equally to this research.}
+\email{vxv200053@utdallas.edu}
+\affiliation{%
+  \institution{The University of Texas at Dallas}
+  \streetaddress{800 W Campbell Rd}
+  \city{Richardson}
+  \state{TX}
+  \country{USA}
+  \postcode{75080}
+}
+
+\author{Chayanin Noramuttha}
+\authornotemark[1]
+\email{cxn200002@utdallas.edu}
+\affiliation{%
+  \institution{The University of Texas at Dallas}
+  \streetaddress{800 W Campbell Rd}
+  \city{Richardson}
+  \state{TX}
+  \country{USA}
+  \postcode{75080}
+}
+
+
+%%
+%% By default, the full list of authors will be used in the page
+%% headers. Often, this list is too long, and will overlap
+%% other information printed in the page headers. This command allows
+%% the author to define a more concise list
+%% of authors' names for this purpose.
+% \renewcommand{\shortauthors}{Trovato and Tobin, et al.}
+
+%%
+%% The abstract is a short summary of the work to be presented in the
+%% article.
+\begin{abstract}
+\due{Abstract}
+\end{abstract}
+
+%%
+%% The code below is generated by the tool at http://dl.acm.org/ccs.cfm.
+%% Please copy and paste the code instead of the example below.
+%%
+% \begin{CCSXML}
+% <ccs2012>
+%  <concept>
+%   <concept_id>00000000.0000000.0000000</concept_id>
+%   <concept_desc>Do Not Use This Code, Generate the Correct Terms for Your Paper</concept_desc>
+%   <concept_significance>500</concept_significance>
+%  </concept>
+%  <concept>
+%   <concept_id>00000000.00000000.00000000</concept_id>
+%   <concept_desc>Do Not Use This Code, Generate the Correct Terms for Your Paper</concept_desc>
+%   <concept_significance>300</concept_significance>
+%  </concept>
+%  <concept>
+%   <concept_id>00000000.00000000.00000000</concept_id>
+%   <concept_desc>Do Not Use This Code, Generate the Correct Terms for Your Paper</concept_desc>
+%   <concept_significance>100</concept_significance>
+%  </concept>
+%  <concept>
+%   <concept_id>00000000.00000000.00000000</concept_id>
+%   <concept_desc>Do Not Use This Code, Generate the Correct Terms for Your Paper</concept_desc>
+%   <concept_significance>100</concept_significance>
+%  </concept>
+% </ccs2012>
+% \end{CCSXML}
+
+% \ccsdesc[500]{Do Not Use This Code~Generate the Correct Terms for Your Paper}
+% \ccsdesc[300]{Do Not Use This Code~Generate the Correct Terms for Your Paper}
+% \ccsdesc{Do Not Use This Code~Generate the Correct Terms for Your Paper}
+% \ccsdesc[100]{Do Not Use This Code~Generate the Correct Terms for Your Paper}
+
+%%
+%% Keywords. The author(s) should pick words that accurately describe
+%% the work being presented. Separate the keywords with commas.
+% \keywords{Do, Not, Us, This, Code, Put, the, Correct, Terms, for,
+%   Your, Paper}
+
+%% A "teaser" image appears between the author and affiliation
+%% information and the body of the document, and typically spans the
+%% page.
+% \begin{teaserfigure}
+%   \includegraphics[width=\textwidth]{sampleteaser}
+%   \caption{Seattle Mariners at Spring Training, 2010.}
+%   \Description{Enjoying the baseball game from the third-base
+%   seats. Ichiro Suzuki preparing to bat.}
+%   \label{fig:teaser}
+% \end{teaserfigure}
+
+
+
+%%
+%% This command processes the author and affiliation and title
+%% information and builds the first part of the formatted document.
+\maketitle
+
+\section{Introduction}
+Throughout the continuous lifecycle of software maintenance and evolution, systems inevitably suffer from architectural drift as the implemented codebase gradually diverges from its prescriptive design constraints. This degradation is introduced by both human developers through ad hoc modifications and by AI coding agents that generate locally correct but structurally harmful code due to their reliance on localized context windows. While recent advances have enabled automated architecture recovery from source code with high accuracy, these approaches remain reactive. They reconstruct architecture after drift has already occurred but provide no mechanism to prevent it from recurring. This project aims to close that gap by automatically translating recovered architectures into enforceable build-time constraints that block violations before they are merged into production.
+
+\subsection{Motivation}
+Addressing architectural drift proactively is critical because unchecked structural degradation quietly accumulates massive technical debt that ultimately paralyzes a system's capacity for long-term maintenance and evolution. This challenge grows more urgent as development teams increasingly adopt autonomous AI coding agents that lack awareness of system-level design constraints. Software architects and maintenance engineers will directly benefit from this research by gaining an automated enforcement pipeline that continuously validates proposed changes against the intended architecture. Consequently, development teams can integrate both human contributors and AI agents into their workflows while preserving the structural integrity and sustainability of their complex systems.
+
+\section{Related work}
+Recent literature has increasingly explored the intersection of LLMs and software architecture, but efforts to use AI for detecting architectural drift have revealed significant limitations.
+\subsection{Exploring Architectural Smells Detection Through LLMs}
+Tessa et al.~\cite{tessa2025} investigated the use of off-the-shelf LLMs to detect structural symptoms of drift, such as architectural smells. Specifically, they evaluated Google's Gemini 1.5 Pro on its ability to detect Hub-like Dependencies (HL) in open-source Java projects, comparing its performance against Arcan, a specialized architectural smell detection tool. An HL is a critical smell where a component has excessive incoming and outgoing dependencies.
+The study revealed a severe precision and explainability gap. While the LLM achieved 100\% recall in spotting high-dependency components, its precision varied significantly. More detailed prompts improved detection performance from 64\% to 82\% for lower-severity smells, yet the model still could not reliably distinguish architecturally significant dependencies from benign ones. Furthermore, only 49\% of the LLM's explanations for the detected smells were deemed satisfactory by human evaluators. This indicates that the model relies on superficial pattern matching rather than genuine architectural reasoning.
+
+\subsection{Towards Automated Identification of Violation Symptoms of Architecture Erosion}
+Li et al.~\cite{li2023} explored the automated identification of architecture erosion by analyzing developer discussions in code reviews. They developed 15 machine learning-based and 4 deep learning-based classifiers using three pre-trained word embeddings to detect violation symptoms from code review comments across four large open-source projects: OpenStack Nova, OpenStack Neutron, Qt Base, and Qt Creator. They further compared these traditional classifiers against LLMs such as GPT-4o, Qwen-2.5, and DeepSeek-R1. The best performing traditional classifier was SVM with word2vec, achieving an F1-score of 0.779.
+This approach is fundamentally reactive and dependent on human oversight. It only succeeds when a developer has already noticed the violation and discussed it in a code review comment. Because the classifiers evaluate natural language discussions rather than the underlying structural graph of the codebase, they remain entirely blind to silent drift, which refers to subtle architectural violations that bypass human reviewers during routine feature updates and are never documented in any textual artifact.
+
+\subsection{ArchAgent: Scalable Legacy Software Architecture Recovery with LLMs}
+In one of the most advanced attempts to handle large-scale systems, Pan et al.~\cite{pan2026} introduced ArchAgent, a hybrid framework designed to recover architectural design from legacy software. It combines traditional static analysis using Abstract Syntax Trees (ASTs) with LLM-powered semantic synthesis to reconstruct architecture diagrams from cross-repository codebases. In their evaluation across eight large-scale GitHub projects, ArchAgent achieved a mean F1 score of 0.966, demonstrating that accurate architecture recovery from source code is feasible.
+
+However, the authors explicitly highlight the local-scope bias and context limitations of modern LLMs as a primary hurdle. Industrial codebases frequently exceed millions of tokens, which overwhelms the context windows of even the most advanced models. More critically, ArchAgent treats recovery as a one-time diagnostic event. Once the architecture is reconstructed, no mechanism exists to enforce it against future changes, leaving the recovered architecture vulnerable to the same drift that necessitated its reconstruction.
+
+\subsection{Formal Software Architecture Rule Learning: A Comparative Investigation between Large Language Models and Inductive Techniques}
+Schindler and Rausch \cite{schindler2024} investigate the use of machine learning techniques to automatically infer software architecture rules from implementation data, addressing the limitations of manual rule specification, which is often time-consuming and error-prone. The study compares inductive rule learning (IRL) approaches with LLMs by applying both to a knowledge base derived from real-world software systems. Their results show that IRL methods, particularly tools like Popper, are generally more effective and consistent in learning rules that align with predefined architectural hypotheses and demonstrate reasonable generalizability across system subsets. In contrast, LLMs exhibit limitations, struggling with formal rule induction, especially when semantic cues are reduced or negative examples are introduced, though they can infer simple rules under favorable conditions. Overall, the paper highlights both the promise and current constraints of data-driven approaches for architectural rule discovery, suggesting that while ML techniques can support more adaptive software architecture practices, further research is needed to improve their robustness and scalability.
+
+\subsection{Evaluating Large Language Models for Detecting Architectural Decision Violations}
+Su et al.~\cite{su2026evaluating} evaluate LLMs for detecting architectural decision violations from Architectural Decision Records across 109 GitHub repositories and 980 ADRs. Their results show substantial agreement between models and strong accuracy for explicit decisions that are inferable from code. Accuracy degrades for implicit decisions and deployment-oriented decisions that depend on configuration and organizational context. These findings support using LLMs for translation and review while relying on deterministic enforcement to judge architectural compliance.
+
+Collectively, these studies highlight two compounding limitations. First, LLMs are not reliable as direct judges of architectural compliance. They operate with local context and often lack the system-level and operational information needed to interpret implicit constraints, which leads to false positives and false negatives in violation detection \cite{tessa2025,su2026evaluating}. Second, even when architecture recovery succeeds with high accuracy, recovery alone does not prevent future drift \cite{pan2026}. This project addresses both gaps by treating documentation as ground truth and using LLMs as translators and reviewers. The output is executed as deterministic enforcement rules that continuously validate code changes. This moves beyond rule inference alone \cite{schindler2024} by integrating translated constraints into an enforcement pipeline that can run on baselines and pull requests.
+
+
+\section{Proposed solution \& tool}
+\subsection{Solution}
+We propose an automated enforcement pipeline that translates recovered software architectures into executable build-time constraints, see Figure~\ref{fig:solution}. The pipeline takes an architecture representation and a project package structure. It prompts an LLM to generate enforceable rules in the native format of deterministic tools. For Java repositories, it generates ArchUnit test suites. For Go repositories, it generates arch-go configurations. This extends the rule-learning approach of Schindler and Rausch \cite{schindler2024} by operationalizing learned constraints as continuously executable checks. The goal is to prevent architectural drift before it is merged into production rather than recovering architecture reactively. The LLM acts as a translator. ArchUnit and arch-go act as deterministic judges, which avoids relying on LLM reasoning as the final compliance decision \cite{su2026evaluating}.
+
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=\textwidth]{cs6356 solution.png}
+    \caption{Workflow Diagram.}
+    \label{fig:solution}
+\end{figure*}
+
+\subsubsection{Input}
+\begin{itemize}
+    \item Target software repositories
+    \begin{itemize}
+        \item Java: Spring Framework and Apache ZooKeeper
+        \item Go: HashiCorp Consul
+    \end{itemize}
+    \item Ground truth architecture documentation provided by the ArchAgent benchmark for each target repository
+    \item Extracted package directory structures and package structure listings from the source tree
+\end{itemize}
+
+\subsubsection{Output}
+\begin{itemize}
+    \item Executable enforcement artifacts that encode the intended architecture as deterministic dependency constraints
+    \item Java artifacts
+    \begin{itemize}
+        \item ArchUnit test suite
+        \item Standalone Maven test harness
+    \end{itemize}
+    \item Go artifacts
+    \begin{itemize}
+        \item arch-go YAML rule file
+        \item Standalone Makefile that runs \texttt{arch-go check}
+    \end{itemize}
+    \item Supporting reports for review and analysis that record compilation fixes, adversarial review findings, and violation triage results
+\end{itemize}
+
+\subsubsection{Algorithm and Data Transformations}
+\begin{enumerate}
+    \item Input collection: Collect the ground truth architecture documentation and the extracted package structure for the target repository.
+    \item Rule generation: Provide the documentation and package structure to an LLM and generate enforcement artifacts. Java outputs are ArchUnit test suites and a standalone Maven test harness. Go outputs are arch-go YAML rules and a standalone Makefile.
+    \item Compilation fix loop: Execute the generated artifacts. If the build fails, provide the compilation errors to the model and regenerate the artifacts. Record each correction in the fix history.
+    \item Adversarial review and patching: Send the generated rules to a reviewer model for adversarial review against the same documentation. Use \texttt{claude-opus-4-7} as the reviewer model. Apply the recommended patches and record the changes in the fix history.
+    \item Baseline validation and triage loop: Run the rules against the repository baseline and collect violations. Use the violation analysis prompt to triage each violation as a mapping error or a real violation using the ground truth documentation. Patch mapping errors and rerun until mapping errors reach zero.
+    \item Calibration: Use the final thoughts prompt to write a final alignment pass. State what the passing rules prove. State what remains uncertain due to documentation gaps.
+    \item Pull request evaluation: Fetch open pull requests and run the same enforcement artifacts on each pull request branch. Compare results against the baseline. Report new violations introduced by each pull request.
+    \item Model comparison: Repeat the pipeline using \texttt{gemini-3-flash} and \texttt{claude-sonnet-4-6} for generation. Use \texttt{claude-opus-4-7} for review. Compare the resulting enforcement suites and fix histories.
+\end{enumerate}
+
+\subsubsection{SME Data Incorporated}
+The solution incorporates ground truth architecture documentation from the ArchAgent benchmark, package-level structural data extracted from each repository, and pull request branches used to evaluate drift introduced by proposed changes.
+
+\subsection{Justification}
+The technical motivation for this solution stems from a critical gap in the current architecture recovery landscape. As highlighted by Pan et al.~\cite{pan2026}, LLMs suffer from local scope bias and cannot hold an entire system dependency matrix in their context window. ArchAgent demonstrates that accurate recovery is achievable despite these limitations. Recovered architectures still lack an enforcement mechanism. Without continuous validation, the same development pressures that caused drift will degrade the recovered architecture again.
+
+This solution makes sense because it shifts architectural governance from a reactive diagnosis to a proactive safeguard. Prior work shows that LLM accuracy is highest when constraints are explicit and inferable, and drops when decisions depend on missing context \cite{su2026evaluating}. This pipeline uses an LLM to translate documentation into executable constraints. Deterministic tools then evaluate the code. ArchUnit serves as the judge for Java repositories. arch-go serves as the judge for Go repositories. This separation reduces ambiguity and removes hallucination risk from the pass or fail decision.
+
+The pipeline also includes cross model validation. A reviewer model audits the generated rules against the same documentation. This adversarial review targets missing constraints, incorrect mappings, and rules that would pass vacuously. The review results are applied as patches and recorded in the fix history.
+
+Model comparison strengthens the justification. Rule generation is evaluated using \texttt{gemini-3-flash} and \texttt{claude-sonnet-4-6}. \texttt{claude-opus-4-7} is used as the reviewer model. This shows whether smaller generation models can still produce enforceable constraints when paired with deterministic enforcement and an adversarial review step.
+
+\subsection{Design and Implementation}
+\subsubsection{Type of Tool}
+\begin{itemize}
+    \item IDE based workflow driven by prompt templates
+    \item Command line enforcement checks that run during validation
+    \item Repository scoped enforcement artifacts that can be run locally or in CI
+\end{itemize}
+
+\subsubsection{Technologies}
+\begin{itemize}
+    \item Development environment
+    \begin{itemize}
+        \item Cursor IDE
+    \end{itemize}
+    \item Enforcement libraries
+    \begin{itemize}
+        \item Java: ArchUnit
+        \item Go: arch-go
+    \end{itemize}
+    \item Execution harnesses
+    \begin{itemize}
+        \item Java: standalone Maven harness
+        \item Go: standalone Makefile harness that runs \texttt{arch-go check}
+    \end{itemize}
+    \item Source control
+    \begin{itemize}
+        \item Git
+    \end{itemize}
+    \item Models
+    \begin{itemize}
+        \item Generation models: \texttt{gemini-3-flash} and \texttt{claude-sonnet-4-6}
+        \item Reviewer model: \texttt{claude-opus-4-7}
+    \end{itemize}
+\end{itemize}
+
+\subsubsection{Architecture}
+\begin{itemize}
+    \item Inputs
+    \begin{itemize}
+        \item ArchAgent ground truth architecture documentation
+        \item Extracted package structure for the target repository
+    \end{itemize}
+    \item Generation and correction
+    \begin{itemize}
+        \item Generate Java ArchUnit tests or Go arch-go rules
+        \item Fix compilation failures and record changes in the fix history
+        \item Review rules against the same documentation and apply patches
+    \end{itemize}
+    \item Validation and evaluation
+    \begin{itemize}
+        \item Run against a baseline and triage violations until mapping errors reach zero
+        \item Produce a final thoughts calibration report
+        \item Run on pull request branches and report new drift
+    \end{itemize}
+\end{itemize}
+
+\subsubsection{Interaction Mechanism}
+\begin{enumerate}
+    \item The ArchAgent documentation and extracted package structure are provided as prompt inputs
+    \item The generation prompt is executed to produce enforcement artifacts
+    \item The compilation fix prompt is applied when builds fail
+    \item The review prompt is executed and the resulting patches are integrated
+    \item The violation analysis prompt is iterated until mapping errors reach zero
+    \item The final thoughts prompt is executed for output calibration
+    \item The artifacts are deployed on pull request branches and validated against the baseline
+\end{enumerate}
+
+\subsection{Limitations}
+\begin{itemize}
+    \item Inputs
+    \begin{itemize}
+        \item Incomplete coverage: The ground truth documentation does not specify every package and dependency present in the current codebase.
+        \item Ambiguity: Some constraints are described at a high level, so mapping to concrete packages requires judgment \cite{su2026evaluating}.
+        \item Staleness: The documentation may lag behind the current repository version, so some violations may reflect documentation drift rather than code drift.
+        \item Granularity mismatch: The documentation may define subsystems while enforcement operates on packages and import paths.
+    \end{itemize}
+    \item Outputs
+    \begin{itemize}
+        \item Over strict or over permissive rules: Generated constraints can block legitimate dependencies or miss real drift.
+        \item Vacuous constraints risk: Rules can execute successfully while failing to meaningfully constrain the architecture.
+        \item LLM hallucination: Generated artifacts can reference functions, classes, or configuration fields that do not exist.
+        \item Mapping sensitivity: Incorrect package mappings can produce outputs that enforce the wrong boundaries.
+        \item Fragility to refactors: Package restructuring can require rule updates even when architectural intent is unchanged.
+        \item Execution scope limits: The checks only cover the code included in the configured build and scan scope.
+    \end{itemize}
+    \item Systems and datasets
+    \begin{itemize}
+        \item Scope of evaluated systems: The replication package contains completed artifacts for Spring Framework, Apache ZooKeeper, and HashiCorp Consul only.
+        \item Documentation dependency: The approach assumes the availability of ArchAgent benchmark ground truth documentation for each target repository.
+    \end{itemize}
+    \item Language support
+    \begin{itemize}
+        \item Supported languages: Java and Go
+        \item Not supported: Other languages and enforcement frameworks are out of scope in this implementation.
+    \end{itemize}
+    \item Evaluation limitations
+    \begin{itemize}
+        \item Cost and API usage: The workflow depends on paid IDE access and constrained API usage.
+        \item Pull request availability: Drift detection depends on the availability and representativeness of open pull requests.
+        \item Manual judgment: Some mapping decisions require manual review when documentation is ambiguous or outdated.
+    \end{itemize}
+\end{itemize}
+
+\section{Empirical evaluation}
+\subsection{Evaluation setup}
+\subsubsection{Evaluation Goal}
+To demonstrate that ground truth architecture documentation can be translated into enforceable build time constraints. The constraints are executed as deterministic checks for Java and Go repositories. The evaluation measures whether the checks detect drift in pull requests before merge.
+
+\subsubsection{Research Questions}
+\begin{enumerate}
+    \item RQ1: Can LLMs translate ground truth architecture documentation into correct and executable enforcement artifacts for Java and Go repositories?
+    \item RQ2: Do the generated enforcement artifacts detect new architectural violations in open pull requests when compared against a baseline run on the main branch?
+    \item RQ3: For rule generation, how do \texttt{gemini-3-flash} and \texttt{claude-sonnet-4-6} compare in correctness and effort when paired with a \texttt{claude-opus-4-7} reviewer model?
+\end{enumerate}
+
+\subsubsection{Success Criteria}
+    \begin{enumerate}
+    \item RQ1 will be considered positively answered if the generated artifacts execute successfully. The Java artifacts must compile and run under the Maven harness. The Go artifacts must run under the Makefile harness and arch-go. Mapping errors must be reduced to zero in the triage loop.
+    \item RQ2 will be considered positively answered if the artifacts detect at least one new violation in an open pull request that is not present in the baseline. If no open pull requests trigger violations, the pipeline must detect a deliberately introduced violation in a controlled fork.
+    \item RQ3 will be considered positively answered if \texttt{gemini-3-flash} and \texttt{claude-sonnet-4-6} both reach a stable enforcement suite. The comparison uses the same reviewer model and the same target repositories. The outcome is reported using the resulting artifacts and fix histories.
+\end{enumerate}
+
+\subsubsection{Datasets}
+\begin{itemize}
+    \item Java repositories
+    \begin{itemize}
+        \item Spring Framework
+        \item Apache ZooKeeper
+    \end{itemize}
+    \item Go repositories
+    \begin{itemize}
+        \item HashiCorp Consul
+    \end{itemize}
+    \item Ground truth architecture documentation from the ArchAgent benchmark for each repository
+\end{itemize}
+
+\subsubsection{Data statistics}
+\begin{itemize}
+    \item \due{Add data statistics for repositories, pull requests, and rule artifacts}
+\end{itemize}
+
+\subsubsection{Metrics}
+\begin{itemize}
+    \item Execution success: Whether Java artifacts compile and run under Maven, and whether Go artifacts run under Make and arch-go.
+    \item Mapping error count: The number of violation patterns classified as mapping errors at each triage iteration until the count reaches zero.
+    \item Cross model catch rate: The number of missing or incorrect constraints identified by the reviewer model during adversarial review.
+    \item Pull request drift detection: The number of new violations in pull request branches that are not present in the baseline.
+    \item Effort and convergence: The number of compilation and review fixes recorded in the fix history before reaching a stable suite.
+\end{itemize}
+
+\subsubsection{Procedures}
+\begin{enumerate}
+    \item Select a target repository and obtain the ArchAgent ground truth documentation.
+    \item Extract the repository package structure used for mapping constraints to packages and import paths.
+    \item Generate enforcement artifacts using the generation prompt.
+    \begin{itemize}
+        \item Java repositories produce ArchUnit artifacts executed using the Maven harness.
+        \item Go repositories produce arch-go artifacts executed using the Makefile harness and \texttt{arch-go check}.
+    \end{itemize}
+    \item Resolve build failures using the compilation fix prompt. Record each change in the fix history.
+    \item Run adversarial review using \texttt{claude-opus-4-7}. Apply review patches and record changes in the fix history.
+    \item Establish a baseline by executing the artifacts on the main branch and recording violations.
+    \item Evaluate open pull requests by checking out each pull request branch and executing the same artifacts. Record new violations that are not present in the baseline.
+    \item Repeat the procedure for model comparison using \texttt{gemini-3-flash} and \texttt{claude-sonnet-4-6} as generation models while keeping \texttt{claude-opus-4-7} as the reviewer model.
+\end{enumerate}
+
+\subsection{Evaluation results and analysis}
+\subsubsection{Evaluation results}
+\begin{itemize}
+    \item \due{Summary of baseline results for Spring Framework}
+    \item \due{Summary of baseline results for Apache ZooKeeper}
+    \item \due{Summary of baseline results for HashiCorp Consul}
+    \item \due{Summary of pull request evaluation results and new drift detected}
+    \item \due{Summary of model comparison results for \texttt{gemini-3-flash} and \texttt{claude-sonnet-4-6}}
+\end{itemize}
+
+\subsubsection{Discussion}
+\begin{itemize}
+    \item \due{Interpretation of major findings}
+    \item \due{Explanations for failures, mapping errors, and fixes}
+    \item \due{Implications for preventing architectural drift}
+\end{itemize}
+
+\subsubsection{Answers to research questions}
+\begin{enumerate}
+    \item \due{Answer to RQ1}
+    \item \due{Answer to RQ2}
+    \item \due{Answer to RQ3}
+\end{enumerate}
+
+\subsubsection{Threats to validity}
+\begin{itemize}
+    \item \due{Internal validity threats}
+    \item \due{External validity threats}
+    \item \due{Construct validity threats}
+    \item \due{Conclusion validity threats}
+\end{itemize}
+
+\subsubsection{Examples of correct and incorrect cases}
+\begin{itemize}
+    \item \due{Example of a correct case}
+    \item \due{Example of an incorrect case}
+\end{itemize}
+
+\section{Conclusions and future work}
+\begin{itemize}
+    \item Conclusions
+    \begin{itemize}
+        \item \due{Explicit conclusions from the project}
+        \item \due{Lessons learned about enforcement quality and drift detection}
+    \end{itemize}
+    \item Future work
+    \begin{itemize}
+        \item \due{Future research activities to improve documentation alignment and rule robustness}
+        \item \due{Future evaluation activities such as more repositories, more PRs, and additional languages}
+    \end{itemize}
+\end{itemize}
+
+
+
+%%
+%% The acknowledgments section is defined using the "acks" environment
+%% (and NOT an unnumbered section). This ensures the proper
+%% identification of the section in the article metadata, and the
+%% consistent spelling of the heading.
+% \begin{acks}
+
+% Identification of funding sources and other support, and thanks to
+% individuals and groups that assisted in the research and the
+% preparation of the work should be included in an acknowledgment
+% section, which is placed just before the reference section in your
+% document.
+
+
+% \end{acks}
+
+%%
+%% The next two lines define the bibliography style to be used, and
+%% the bibliography file.
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{main}
+
+%%
+%% If your work has an appendix, this is the place to put it.
+\appendix
+
+% \section{Research Methods}
+
+% \subsection{Part One}
+
+% Lorem ipsum dolor sit amet, consectetur adipiscing elit. Morbi
+% malesuada, quam in pulvinar varius, metus nunc fermentum urna, id
+% sollicitudin purus odio sit amet enim. Aliquam ullamcorper eu ipsum
+% vel mollis. Curabitur quis dictum nisl. Phasellus vel semper risus, et
+% lacinia dolor. Integer ultricies commodo sem nec semper.
+
+% \subsection{Part Two}
+
+% Etiam commodo feugiat nisl pulvinar pellentesque. Etiam auctor sodales
+% ligula, non varius nibh pulvinar semper. Suspendisse nec lectus non
+% ipsum convallis congue hendrerit vitae sapien. Donec at laoreet
+% eros. Vivamus non purus placerat, scelerisque diam eu, cursus
+% ante. Etiam aliquam tortor auctor efficitur mattis.
+
+% \section{Online Resources}
+
+% Nam id fermentum dui. Suspendisse sagittis tortor a nulla mollis, in
+% pulvinar ex pretium. Sed interdum orci quis metus euismod, et sagittis
+% enim maximus. Vestibulum gravida massa ut felis suscipit
+% congue. Quisque mattis elit a risus ultrices commodo venenatis eget
+% dui. Etiam sagittis eleifend elementum.
+
+% Nam interdum magna at lectus dignissim, ac dignissim lorem
+% rhoncus. Maecenas eu arcu ac neque placerat aliquam. Nunc pulvinar
+% massa et mattis lacinia.
+
+\end{document}
+\endinput
+%%
+%% End of file `sample-authordraft.tex'.

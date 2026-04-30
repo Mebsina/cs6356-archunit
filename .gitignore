@@ -8,3 +8,17 @@ arch-eval-benchmark/
 /istio/
 scratch/
 target/
+
+# LaTeX
+report/*.aux
+report/*.log
+report/*.out
+report/*.fls
+report/*.fdb_latexmk
+report/*.synctex.gz
+report/*.bbl
+report/*.blg
+report/*.toc
+report/*.pdf
+!report/sampleteaser.pdf
+!report/acmguide.pdf
