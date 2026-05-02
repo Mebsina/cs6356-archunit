@@ -463,7 +463,10 @@ To demonstrate that ground truth architecture documentation can be translated in
 
 \subsubsection{Data statistics}
 \begin{itemize}
-    \item \due{Add data statistics for repositories, pull requests, and rule artifacts}
+    \item Repositories: Three repositories were evaluated: two Java repositories, Spring Framework and Apache ZooKeeper, and one Go repository, HashiCorp Consul.
+    \item Models: Two generation models were evaluated for each repository, \texttt{claude-sonnet-4-6} and \texttt{gemini-3-flash}, producing six model-repository combinations.
+    \item Rule artifacts: The study produced six executable enforcement suites: four Java ArchUnit/Maven suites and two Go arch-go/Make suites.
+    \item Pull requests: Six pull requests were evaluated in the completed PR analysis: three Spring Framework pull requests and three Apache ZooKeeper pull requests. HashiCorp Consul PR evaluation is recorded as \due{Consul PR count and identifiers}.
 \end{itemize}
 
 \subsubsection{Metrics}
