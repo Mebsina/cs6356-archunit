@@ -434,7 +434,7 @@ To demonstrate that ground truth architecture documentation can be translated in
 \begin{enumerate}
     \item RQ1: Can LLMs translate ground truth architecture documentation into correct and executable enforcement artifacts for Java and Go repositories?
     \item RQ2: Do the generated enforcement artifacts detect new architectural violations in open pull requests when compared against a baseline run on the main branch?
-    \item RQ3: For rule generation, how do \texttt{gemini-3-flash} and \texttt{claude-sonnet-4-6} compare in correctness and effort when paired with a \texttt{claude-opus-4-7} reviewer model?
+    \item RQ3: For rule generation, how do \texttt{gemini-3-flash} and \newline\texttt{claude-sonnet-4-6} compare in correctness and effort when paired with a \texttt{claude-opus-4-7} reviewer model?
 \end{enumerate}
 
 \subsubsection{Success Criteria}
@@ -522,7 +522,8 @@ The results are organized by repository.
     \item Execution: Both generated ArchUnit suites eventually compiled and ran under the Maven harness.
     \begin{itemize}
         \item \texttt{claude-sonnet-4-6}: compiled initially, but the Review~\#6 patch introduced a Java generics compile error in round 7; it was fixed in round 8.
-        \item \texttt{gemini-3-flash}: repeatedly hallucinated the non-existent ArchUnit method \texttt{mayBeAccessedByAllLayers()}, producing four compile-fix iterations.
+        \item \texttt{gemini-3-flash}: repeatedly hallucinated the non-existent ArchUnit method\newline
+        \mbox{\texttt{mayBeAccessedByAllLayers()}}, producing four compile-fix iterations.
     \end{itemize}
     \item Baseline: Both suites reached 0 architectural violations and 0 remaining mapping errors.
     \item Review: The reviewer model caught missing or incorrect constraints in both suites.
@@ -748,9 +749,25 @@ Overall, all six model-repository combinations reached executable stable suites 
 
 \subsubsection{Discussion}
 \begin{itemize}
-    \item \due{Interpretation of major findings}
-    \item \due{Explanations for failures, mapping errors, and fixes}
-    \item \due{Implications for preventing architectural drift}
+    \item Interpretation of major findings: The evaluation shows that LLM-generated enforcement artifacts can reach executable, zero-violation baselines for both Java and Go repositories, but the quality of the resulting suite depends strongly on how well the model's architectural assumptions match the target system.
+    \begin{itemize}
+        \item \texttt{claude-sonnet-4-6}: performed better on ZooKeeper and Consul, where the architecture required interpreting implicit legacy boundaries such as ZooKeeper's Protocol layer and Consul's Server/Consensus tier.
+        \item \texttt{gemini-3-flash}: performed better on Spring Framework, where a stricter and more uniform layered interpretation matched the documented module structure more closely.
+        \item The model comparison therefore does not show one universally better generator. It shows that architectural fidelity is system-dependent.
+    \end{itemize}
+    \item Explanations for failures, mapping errors, and fixes: Most failures fell into three categories.
+    \begin{itemize}
+        \item Build and API hallucinations: Java suites failed when generated code referenced non-existent ArchUnit APIs or omitted required imports. The clearest case was ZooKeeper with \texttt{gemini-3-flash}, which repeatedly reintroduced\newline{\texttt{mayBeAccessedByAllLayers()}}.
+        \item Schema and harness errors: Go suites failed or became partially vacuous when generated YAML used unsupported arch-go schema shapes or Makefile commands. These issues did not always appear as ordinary compilation failures, but they still prevented reliable enforcement.
+        \item Mapping errors: Large violation counts usually reflected mismatches between documentation-level concepts and concrete package structure. Fixes converged by reclassifying packages, introducing missing architectural layers, or adding narrow exceptions for known cross-cutting utilities.
+    \end{itemize}
+    \item Implications for preventing architectural drift: The results support using LLMs as translators and reviewers, but not as final judges.
+    \begin{itemize}
+        \item Deterministic tools remain necessary because they expose compile errors, schema errors, and concrete dependency violations that the generator may miss.
+        \item A zero-violation baseline is necessary but not sufficient. It must be interpreted with the fix history, because a suite can pass by using broad suppressions or overly permissive mappings.
+        \item Pull request detection is suite-dependent. ZooKeeper PR-2307 failed under \texttt{claude-sonnet-4-6} but passed under \texttt{gemini-3-flash}, showing that independently generated rule suites are not interchangeable even when they come from the same architecture documentation.
+    \end{itemize}
+    \item Hybrid Apprach: The workflow should therefore be hybrid. LLMs are useful for translating architecture documentation into candidate ArchUnit and arch-go rules, but they should not be treated as final architectural authorities. Deterministic enforcement tools and repository-aware engineer review are needed to validate mappings, inspect suppressions, and distinguish real drift from documentation or modeling errors.
 \end{itemize}
 
 \subsubsection{Answers to research questions}
@@ -778,7 +795,7 @@ Overall, all six model-repository combinations reached executable stable suites 
 \begin{itemize}
     \item Conclusions
     \begin{itemize}
-        \item \due{Explicit conclusions from the project}
+        \item LLMs can generate executable architectural rules, but reliable drift prevention requires a hybrid workflow that combines LLM generation, deterministic enforcement, and repository-aware engineer oversight.
         \item \due{Lessons learned about enforcement quality and drift detection}
     \end{itemize}
     \item Future work
