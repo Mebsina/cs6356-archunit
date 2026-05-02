@@ -45,7 +45,7 @@
 
 %%%% Generic manuscript mode, required for submission
 %%%% and peer review
-\documentclass[sigconf,screen,review]{acmart}
+\documentclass[sigconf,screen]{acmart}
 %% Fonts used in the template cannot be substituted; margin 
 %% adjustments are not allowed.
 %%
@@ -108,6 +108,10 @@
 %% the next command will enable that style.
 %%\citestyle{acmauthoryear}
 
+\usepackage{array}
+\usepackage{multirow}
+
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
 \newcommand{\blue}[1]{{\color{blue}#1}}
 \newcommand{\due}[1]{\blue{[FILL FOR {#1}]}}
 
@@ -486,13 +490,261 @@ To demonstrate that ground truth architecture documentation can be translated in
 
 \subsection{Evaluation results and analysis}
 \subsubsection{Evaluation results}
+The results are organized by repository.
+
+\paragraph{Spring Framework.}
 \begin{itemize}
-    \item \due{Summary of baseline results for Spring Framework}
-    \item \due{Summary of baseline results for Apache ZooKeeper}
-    \item \due{Summary of baseline results for HashiCorp Consul}
-    \item \due{Summary of pull request evaluation results and new drift detected}
-    \item \due{Summary of model comparison results for \texttt{gemini-3-flash} and \texttt{claude-sonnet-4-6}}
+    \item Execution: Both generated ArchUnit suites eventually compiled and ran under the Maven harness.
+    \begin{itemize}
+        \item \texttt{claude-sonnet-4-6}: required one compile fix for a hallucinated ArchUnit method.
+        \item \texttt{gemini-3-flash}: required one compile fix for a missing ArchUnit import.
+    \end{itemize}
+    \item Baseline: Both suites reached 0 architectural violations and 0 remaining mapping errors.
+    \item Review: The reviewer model identified missing or incorrect constraints in both suites.
+    \begin{itemize}
+        \item \texttt{claude-sonnet-4-6}: 46 issues.
+        \item \texttt{gemini-3-flash}: 46 issues.
+    \end{itemize}
+    \item Effort: Table~\ref{tab:mapping-error-convergence} reports compile failures, schema failures, and mapping-error counts by round.
+    \begin{itemize}
+        \item \texttt{claude-sonnet-4-6}: converged in 6 total iterations.
+        \item \texttt{gemini-3-flash}: converged in 10 total iterations.
+    \end{itemize}
+    \item Outcome: \texttt{gemini-3-flash} produced the stronger Spring result.
+    \begin{itemize}
+        \item \texttt{claude-sonnet-4-6}: reached a passing suite with less effort, but used broader suppressions and synthetic layering that weakened alignment with the documented Spring module structure.
+        \item \texttt{gemini-3-flash}: required more iterations, but its eight-layer structure more closely matched the documented Spring module architecture.
+    \end{itemize}
 \end{itemize}
+
+\paragraph{Apache ZooKeeper.}
+\begin{itemize}
+    \item Execution: Both generated ArchUnit suites eventually compiled and ran under the Maven harness.
+    \begin{itemize}
+        \item \texttt{claude-sonnet-4-6}: compiled initially, but the Review~\#6 patch introduced a Java generics compile error in round 7; it was fixed in round 8.
+        \item \texttt{gemini-3-flash}: repeatedly hallucinated the non-existent ArchUnit method \texttt{mayBeAccessedByAllLayers()}, producing four compile-fix iterations.
+    \end{itemize}
+    \item Baseline: Both suites reached 0 architectural violations and 0 remaining mapping errors.
+    \item Review: The reviewer model caught missing or incorrect constraints in both suites.
+    \begin{itemize}
+        \item \texttt{claude-sonnet-4-6}: approximately 49 issues.
+        \item \texttt{gemini-3-flash}: approximately 17 issues.
+    \end{itemize}
+    \item Effort: Table~\ref{tab:mapping-error-convergence} reports compile failures, schema failures, and mapping-error counts by round.
+    \begin{itemize}
+        \item \texttt{claude-sonnet-4-6}: converged in 8 total iterations.
+        \item \texttt{gemini-3-flash}: converged in 14 total iterations.
+    \end{itemize}
+    \item Outcome: \texttt{claude-sonnet-4-6} produced the stronger ZooKeeper artifact.
+    \begin{itemize}
+        \item \texttt{claude-sonnet-4-6}: introduced a Protocol layer that correctly separates shared wire-format types from the client and server tiers.
+        \item \texttt{gemini-3-flash}: eventually reached a passing suite, but repeatedly hallucinated ArchUnit APIs and relied on flatter package assignments.
+    \end{itemize}
+\end{itemize}
+
+\paragraph{HashiCorp Consul.}
+\begin{itemize}
+    \item Execution: Both generated arch-go suites eventually ran under the Makefile harness.
+    \begin{itemize}
+        \item \texttt{claude-sonnet-4-6}: had no compile failure, but review found vacuous arch-go content rules caused by unsupported YAML schema shapes.
+        \item \texttt{gemini-3-flash}: had multiple arch-go API/schema hallucinations, including a non-existent \texttt{maxComplexity} field, a non-existent \texttt{arch-go check --config} invocation, and one YAML unmarshal regression that temporarily disabled rule evaluation.
+    \end{itemize}
+    \item Baseline: Both suites reached a final baseline with 0 architectural violations.
+    \item Review: The reviewer model identified missing or incorrect constraints in both suites.
+    \begin{itemize}
+        \item \texttt{claude-sonnet-4-6}: approximately 54 issues.
+        \item \texttt{gemini-3-flash}: approximately 43 issues.
+    \end{itemize}
+    \item Effort: The Consul fix histories did not tabulate per-round mapping-error counts, so Table~\ref{tab:mapping-error-convergence} reports schema/API correction rounds and the final available value.
+    \begin{itemize}
+        \item \texttt{claude-sonnet-4-6}: converged in 5 total iterations.
+        \item \texttt{gemini-3-flash}: converged in 3 total iterations.
+    \end{itemize}
+    \item Outcome: \texttt{claude-sonnet-4-6} produced the stronger Consul artifact.
+    \begin{itemize}
+        \item \texttt{claude-sonnet-4-6}: modeled the Server/Consensus tier and intra-server boundaries more precisely.
+        \item \texttt{gemini-3-flash}: converged quickly and added useful harness isolation, but its flatter model collapsed the server into the broader agent layer.
+    \end{itemize}
+\end{itemize}
+
+\begin{table}[t]
+    \centering
+    \small
+    \caption{Round-by-round convergence including compile and schema failures.}\label{tab:mapping-error-convergence}
+    \begin{tabular}{@{}p{0.20\columnwidth}p{0.30\columnwidth}C{0.10\columnwidth}C{0.28\columnwidth}@{}}
+        \toprule
+        \textbf{Repository} & \textbf{Model} & \textbf{Round} & \textbf{Result} \\
+        \midrule
+        \multirow[t]{16}{=}{Spring Framework}  & \texttt{claude-sonnet-4-6} & 1 & \texttt{Build Error} \\
+                          &        & 2 & 1,864 \\
+                          &        & 3 & 63 \\
+                          &        & 4 & 103 \\
+                          &        & 5 & 35 \\
+                          &        & \textbf{6} & \texttt{\textbf{PASS}} \\
+
+                          & \texttt{gemini-3-flash} & 1 & \texttt{Build Error} \\
+                          &        & 2 & 647 \\
+                          &        & 3 & 647 \\
+                          &        & 4 & 143 \\
+                          &        & 5 & 7 \\
+                          &        & 6 & 7 \\
+                          &        & 7 & 9 \\
+                          &        & 8 & 9 \\
+                          &        & 9 & 0 \\
+                          &        & \textbf{10} & \texttt{\textbf{PASS}} \\
+        \midrule
+        \multirow[t]{22}{=}{Apache ZooKeeper}  & \texttt{claude-sonnet-4-6} & 1 & 22,332 \\
+                          &        & 2 & 22,332 \\
+                          &        & 3 & 25,917 \\
+                          &        & 4 & 1,561 \\
+                          &        & 5 & 146 \\
+                          &        & 6 & 17 \\
+                          &        & 7 & \texttt{Build Error} \\
+                          &        & \textbf{8} & \texttt{\textbf{PASS}} \\
+
+                          & \texttt{gemini-3-flash} & 1 & \texttt{Build Error} \\
+                          &        & 2 & 306 \\
+                          &        & 3 & \texttt{Build Error} \\
+                          &        & 4 & 411 \\
+                          &        & 5 & 160 \\
+                          &        & 6 & \texttt{Build Error} \\
+                          &        & 7 & 160 \\
+                          &        & 8 & \texttt{Build Error} \\
+                          &        & 9 & 180 \\
+                          &        & 10 & 180 \\
+                          &        & 11 & 180 \\
+                          &        & 12 & 160 \\
+                          &        & 13 & 30 \\
+                          &        & \textbf{14} & \texttt{\textbf{PASS}} \\
+        \midrule
+        \multirow[t]{8}{=}{HashiCorp Consul}   & \texttt{claude-sonnet-4-6} & 1 & \texttt{Schema Fix} \\
+                          &        & 2 & \texttt{Schema Fix} \\
+                          &        & 3 & \texttt{Schema Fix} \\
+                          &        & 4 & \texttt{Schema Fix} \\
+                          &        & \textbf{5} & \texttt{\textbf{PASS}} \\
+                          & \texttt{gemini-3-flash} & 1 & \texttt{Schema/API Error} \\
+                          &        & 2 & \texttt{Schema/API Error} \\
+                          &        & \textbf{3} & \texttt{\textbf{PASS}} \\
+        \midrule
+        \multirow[t]{2}{=}{TOTAL} & \texttt{claude-sonnet-4-6} & \textbf{19} &  \\
+                          & \texttt{gemini-3-flash} & \textbf{27} &  \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\paragraph{Pull request drift detection.}
+Table~\ref{tab:pr-drift} summarizes the pull request drift results by repository.
+\begin{itemize}
+    \item Spring Framework: Three pull requests were evaluated.
+    \begin{itemize}
+        \item PR-36701:
+        \begin{itemize}
+            \item \texttt{claude-sonnet-4-6}: PASS.
+            \begin{itemize}
+                \item Rationale: The native-mode proxy callback changes stayed within allowed Core/AOP dependency directions.
+            \end{itemize}
+            \item \texttt{gemini-3-flash}: PASS.
+            \begin{itemize}
+                \item Rationale: The same changes did not introduce new cross-layer Spring-internal dependencies.
+            \end{itemize}
+        \end{itemize}
+        \item PR-36650:
+        \begin{itemize}
+            \item \texttt{claude-sonnet-4-6}: PASS.
+            \begin{itemize}
+                \item Rationale: The messaging change was logic-only and did not alter the dependency graph.
+            \end{itemize}
+            \item \texttt{gemini-3-flash}: PASS.
+            \begin{itemize}
+                \item Rationale: The branch stayed within the existing messaging mapping and introduced no new forbidden imports.
+            \end{itemize}
+        \end{itemize}
+        \item PR-36647:
+        \begin{itemize}
+            \item \texttt{claude-sonnet-4-6}: PASS.
+            \begin{itemize}
+                \item Rationale: The zstd resource-resolver change stayed within Web and allowed foundational dependencies.
+            \end{itemize}
+            \item \texttt{gemini-3-flash}: PASS.
+            \begin{itemize}
+                \item Rationale: The third-party codec did not create a new Spring-internal layer violation.
+            \end{itemize}
+        \end{itemize}
+    \end{itemize}
+    \item Apache ZooKeeper: Three pull requests were evaluated.
+    \begin{itemize}
+        \item PR-2307:
+        \begin{itemize}
+            \item \texttt{claude-sonnet-4-6}: \textbf{FAIL}.
+            \begin{itemize}
+                \item Rationale: The module split introduced root-level changes that triggered the suite's stricter Protocol-layer and root-package classification.
+            \end{itemize}
+            \item \texttt{gemini-3-flash}: PASS.
+            \begin{itemize}
+                \item Rationale: Its broader root-package handling did not classify the same branch as new drift.
+            \end{itemize}
+        \end{itemize}
+        \item PR-2308:
+        \begin{itemize}
+            \item \texttt{claude-sonnet-4-6}: PASS.
+            \begin{itemize}
+                \item Rationale: The added client-operation interfaces did not introduce new forbidden dependency edges.
+            \end{itemize}
+            \item \texttt{gemini-3-flash}: PASS.
+            \begin{itemize}
+                \item Rationale: The same changes stayed within its public API/client mapping.
+            \end{itemize}
+        \end{itemize}
+        \item PR-2375:
+        \begin{itemize}
+            \item \texttt{claude-sonnet-4-6}: PASS.
+            \begin{itemize}
+                \item Rationale: The export/import CLI changes did not add new disallowed CLI-to-server dependencies.
+            \end{itemize}
+            \item \texttt{gemini-3-flash}: PASS.
+            \begin{itemize}
+                \item Rationale: The branch did not introduce new violations against its tools/server rules.
+            \end{itemize}
+        \end{itemize}
+    \end{itemize}
+    \item HashiCorp Consul: Pull request evaluation was not completed in this phase and remains a \due{future evaluation item}.
+    \begin{itemize}
+        \item \due{Consul PR identifier}:
+        \begin{itemize}
+            \item \texttt{claude-sonnet-4-6}: \due{PASS/FAIL}
+            \begin{itemize}
+                \item Rationale: \due{Reason for Consul PR result under \texttt{claude-sonnet-4-6}}
+            \end{itemize}
+            \item \texttt{gemini-3-flash}: \due{PASS/FAIL}
+            \begin{itemize}
+                \item Rationale: \due{Reason for Consul PR result under \texttt{gemini-3-flash}}
+            \end{itemize}
+        \end{itemize}
+    \end{itemize}
+\end{itemize}
+
+\begin{table}[t]
+    \centering
+    \small
+    \caption{Pull request drift detection. FAIL means new violations appeared on the PR branch relative to baseline.}\label{tab:pr-drift}
+    \begin{tabular}{p{0.27\columnwidth}p{0.07\columnwidth}cc}
+        \toprule
+        \textbf{Repository} & \textbf{PR} & \texttt{claude-sonnet-4-6} & \texttt{gemini-3-flash} \\
+        \midrule
+        Spring Framework & 36701 & PASS & PASS \\
+                                        & 36650 & PASS & PASS \\
+                                        & 36647 & PASS & PASS \\
+        \midrule
+        Apache ZooKeeper & 2307 & \textbf{FAIL} & PASS \\
+                                        & 2308 & PASS & PASS \\
+                                        & 2375 & PASS & PASS \\
+        \midrule
+        HashiCorp Consul & \due{Consul PRs} & NA & NA \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Overall, all six model-repository combinations reached executable stable suites with 0 baseline violations. \texttt{claude-sonnet-4-6} required less total convergence effort across repositories, 19 iterations versus 27 for \texttt{gemini-3-flash}. \texttt{claude-sonnet-4-6} produced the stronger suites for ZooKeeper and Consul, while \texttt{gemini-3-flash} produced the stronger suite for Spring Framework.
 
 \subsubsection{Discussion}
 \begin{itemize}
