@@ -13,21 +13,9 @@ import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
  * defining a strict layered structure and preventing circular or illegal dependencies
  * between modules.
  *
- * NOTE: The layer hierarchy is inferred from package naming conventions and KRaft
- * design patterns (KIP-500, KIP-405), as the provided PDF documentation focuses
- * exclusively on Kafka Streams internals.
- *
- * Layer Hierarchy (from Top to Bottom):
- *
- * * Application: High-level frameworks (Streams, Connect) that leverage client APIs.
- *
- * * Server: Core broker logic, KRaft metadata (controller, raft, metadata, image, snapshot).
- *
- * * Client: Public interfaces and core client logic (Producer, Consumer, Admin).
- *
- * * Infrastructure: Low-level abstractions for Networking, Security, and Storage.
- *
- * * Support: Fundamental utilities and shared libraries (common, server-common).
+ * NOTE: The layer hierarchy is derived from Kafka's actual module topology and KRaft
+ * design patterns. See the 'layered_architecture_is_respected' rule for canonical
+ * layer membership.
  */
 @AnalyzeClasses(
     packages = "org.apache.kafka",
@@ -47,7 +35,12 @@ public class ArchitectureEnforcementTest {
             "org.apache.kafka.metadata..",
             "org.apache.kafka.raft..",
             "org.apache.kafka.image..",
-            "org.apache.kafka.snapshot..")
+            "org.apache.kafka.snapshot..",
+            "org.apache.kafka.server.log..",
+            "org.apache.kafka.server.share..",
+            "org.apache.kafka.server.purgatory..",
+            "org.apache.kafka.server.network..",
+            "org.apache.kafka.server.quota..")
         .layer("Infrastructure").definedBy(
             "org.apache.kafka.storage..",
             "org.apache.kafka.security..")
@@ -62,14 +55,19 @@ public class ArchitectureEnforcementTest {
             "org.apache.kafka.server.immutable..",
             "org.apache.kafka.server.record..",
             "org.apache.kafka.server.storage..",
-            "org.apache.kafka.server.log..")
+            "org.apache.kafka.server.policy..",
+            "org.apache.kafka.server.telemetry..",
+            "org.apache.kafka.config..",
+            "org.apache.kafka.deferred..",
+            "org.apache.kafka.queue..",
+            "org.apache.kafka.timeline..")
 
         .whereLayer("Application").mayNotBeAccessedByAnyLayer()
         .whereLayer("Server").mayOnlyBeAccessedByLayers("Application")
-        .whereLayer("Client").mayOnlyBeAccessedByLayers("Application", "Server")
+        .whereLayer("Client").mayOnlyBeAccessedByLayers("Application", "Server", "Support")
         .whereLayer("Infrastructure").mayOnlyBeAccessedByLayers("Application", "Server")
         .whereLayer("Support").mayOnlyBeAccessedByLayers("Application", "Server", "Client", "Infrastructure")
-        .because("Inferred from package naming conventions only — the supplied PDF does not specify a layered architecture. Validate against KIPs (KIP-500, KIP-405) before relying in CI.");
+        .because("Layer model derived from Kafka's actual module topology; Support->Client edge documents the historical common.requests<->clients.admin and server.util<->clients DTO carve-outs (see HIGH-A2/A3 in review #2).");
 
     @ArchTest
     public static final ArchRule streams_should_not_depend_on_connect = noClasses()
@@ -83,28 +81,30 @@ public class ArchitectureEnforcementTest {
         .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.streams..")
         .because("Streams and Connect are parallel application frameworks.");
 
+    private static final String[] BROKER_INTERNAL_PACKAGES = {
+        "org.apache.kafka.controller..",
+        "org.apache.kafka.metadata..",
+        "org.apache.kafka.image..",
+        "org.apache.kafka.snapshot..",
+        "org.apache.kafka.raft..",
+        "org.apache.kafka.storage..",
+        "org.apache.kafka.server.log..",
+        "org.apache.kafka.server.share..",
+        "org.apache.kafka.server.purgatory..",
+        "org.apache.kafka.server.network..",
+        "org.apache.kafka.server.quota.."
+    };
+
     @ArchTest
     public static final ArchRule streams_should_not_depend_on_broker_internals = noClasses()
         .that().resideInAPackage("org.apache.kafka.streams..")
-        .should().dependOnClassesThat().resideInAnyPackage(
-            "org.apache.kafka.controller..",
-            "org.apache.kafka.metadata..",
-            "org.apache.kafka.image..",
-            "org.apache.kafka.snapshot..",
-            "org.apache.kafka.raft..",
-            "org.apache.kafka.storage..")
+        .should().dependOnClassesThat().resideInAnyPackage(BROKER_INTERNAL_PACKAGES)
         .because("Streams talks to brokers via the public clients API only.");
 
     @ArchTest
     public static final ArchRule connect_should_not_depend_on_broker_internals = noClasses()
         .that().resideInAPackage("org.apache.kafka.connect..")
-        .should().dependOnClassesThat().resideInAnyPackage(
-            "org.apache.kafka.controller..",
-            "org.apache.kafka.metadata..",
-            "org.apache.kafka.image..",
-            "org.apache.kafka.snapshot..",
-            "org.apache.kafka.raft..",
-            "org.apache.kafka.storage..")
+        .should().dependOnClassesThat().resideInAnyPackage(BROKER_INTERNAL_PACKAGES)
         .because("Connect talks to brokers via the public clients API only.");
 
     @ArchTest
@@ -128,14 +128,21 @@ public class ArchitectureEnforcementTest {
     @ArchTest
     public static final ArchRule metadata_should_not_depend_on_controller = noClasses()
         .that().resideInAPackage("org.apache.kafka.metadata..")
+        .and().resideOutsideOfPackage("org.apache.kafka.metadata.authorizer..")
         .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.controller..")
-        .because("metadata is the controller's domain model, not its dependent.");
+        .because("metadata is the controller's domain model. EXCEPTION: metadata.authorizer.ClusterMetadataAuthorizer/AclMutator intentionally constructs controller.ControllerRequestContext to forward ACL mutations through the controller.");
 
     @ArchTest
     public static final ArchRule image_should_not_depend_on_controller = noClasses()
         .that().resideInAPackage("org.apache.kafka.image..")
         .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.controller..")
         .because("image is consumed by the controller, never the other way.");
+
+    @ArchTest
+    public static final ArchRule snapshot_should_not_depend_on_controller = noClasses()
+        .that().resideInAPackage("org.apache.kafka.snapshot..")
+        .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.controller..")
+        .because("snapshots are written by the controller, not consumers of it.");
 
     @ArchTest
     public static final ArchRule storage_should_not_depend_on_security = noClasses()
