@@ -508,10 +508,10 @@ The results are organized by repository.
     \item Baseline: Both suites reached 0 architectural violations and 0 remaining mapping errors.
     \item Review: The reviewer model identified missing or incorrect constraints in both suites.
     \begin{itemize}
-        \item \texttt{claude-sonnet-4-6}: 46 issues.
-        \item \texttt{gemini-3-flash}: 46 issues.
+        \item \texttt{claude-sonnet-4-6}: 12 initial issues.
+        \item \texttt{gemini-3-flash}: 14 initial issues.
     \end{itemize}
-    \item Effort: Table~\ref{tab:mapping-error-convergence} reports compile failures, schema failures, and mapping-error counts by round.
+    \item Effort: Table~\ref{tab:convergence-spring} reports compile failures, schema failures, and mapping-error counts by round.
     \begin{itemize}
         \item \texttt{claude-sonnet-4-6}: converged in 6 total iterations.
         \item \texttt{gemini-3-flash}: converged in 10 total iterations.
@@ -534,10 +534,10 @@ The results are organized by repository.
     \item Baseline: Both suites reached 0 architectural violations and 0 remaining mapping errors.
     \item Review: The reviewer model caught missing or incorrect constraints in both suites.
     \begin{itemize}
-        \item \texttt{claude-sonnet-4-6}: approximately 49 issues.
-        \item \texttt{gemini-3-flash}: approximately 17 issues.
+        \item \texttt{claude-sonnet-4-6}: 11 initial issues.
+        \item \texttt{gemini-3-flash}: 10 initial issues.
     \end{itemize}
-    \item Effort: Table~\ref{tab:mapping-error-convergence} reports compile failures, schema failures, and mapping-error counts by round.
+    \item Effort: Table~\ref{tab:convergence-zookeeper} reports compile failures, schema failures, and mapping-error counts by round.
     \begin{itemize}
         \item \texttt{claude-sonnet-4-6}: converged in 8 total iterations.
         \item \texttt{gemini-3-flash}: converged in 14 total iterations.
@@ -559,10 +559,10 @@ The results are organized by repository.
     \item Baseline: Both suites reached a final baseline with 0 architectural violations.
     \item Review: The reviewer model identified missing or incorrect constraints in both suites.
     \begin{itemize}
-        \item \texttt{claude-sonnet-4-6}: approximately 54 issues.
-        \item \texttt{gemini-3-flash}: approximately 43 issues.
+        \item \texttt{claude-sonnet-4-6}: 10 initial issues.
+        \item \texttt{gemini-3-flash}: 16 initial issues.
     \end{itemize}
-    \item Effort: The Consul fix histories did not tabulate per-round mapping-error counts, so Table~\ref{tab:mapping-error-convergence} reports schema/API correction rounds and the final available value.
+    \item Effort: The Consul fix histories did not tabulate per-round mapping-error counts, so Table~\ref{tab:convergence-consul} reports schema/API correction rounds and the final available value.
     \begin{itemize}
         \item \texttt{claude-sonnet-4-6}: converged in 5 total iterations.
         \item \texttt{gemini-3-flash}: converged in 3 total iterations.
@@ -577,64 +577,102 @@ The results are organized by repository.
 \begin{table}[t]
     \centering
     \small
-    \caption{Round-by-round convergence including compile and schema failures.}\label{tab:mapping-error-convergence}
-    \begin{tabular}{@{}p{0.20\columnwidth}p{0.30\columnwidth}C{0.10\columnwidth}C{0.28\columnwidth}@{}}
+    \caption{Spring Framework: iterations until convergence.}
+    \label{tab:convergence-spring}
+    \begin{tabular}{@{}p{0.25\columnwidth}C{0.25\columnwidth}p{0.20\columnwidth}C{0.15\columnwidth}@{}}
         \toprule
-        \textbf{Repository} & \textbf{Model} & \textbf{Round} & \textbf{Result} \\
+        \textbf{Model} & \textbf{Round} & \textbf{Violations} & \textbf{Issues} \\
         \midrule
-        \multirow[t]{16}{=}{Spring Framework}  & \texttt{claude-sonnet-4-6} & 1 & \texttt{Build Error} \\
-                          &        & 2 & 1,864 \\
-                          &        & 3 & 63 \\
-                          &        & 4 & 103 \\
-                          &        & 5 & 35 \\
-                          &        & \textbf{6} & \texttt{\textbf{PASS}} \\
+        \texttt{claude-sonnet-4-6} & 1 & \texttt{Build Error} & --- \\
+                                                & 2 & 1,864 & 12 \\
+                                                & 3 & 63 & 15 \\
+                                                & 4 & 103 & 14 \\
+                                                & 5 & 35 & 5 \\
+                                                & \textbf{6} & \texttt{\textbf{PASS}} & --- \\
+        \cmidrule{1-4}
+        \texttt{gemini-3-flash} & 1 & \texttt{Build Error} & --- \\
+                                            & 2 & 647 & 18 \\
+                                            & 3 & 647 & 11 \\
+                                            & 4 & 143 & 7 \\
+                                            & 5 & 7 & 11 \\
+                                            & 6 & 7 & 6 \\
+                                            & 7 & 9 & 6 \\
+                                            & 8 & 9 & 5 \\
+                                            & 9 & 0 & 6 \\
+                                            & \textbf{10} & \texttt{\textbf{PASS}} & --- \\
+        \bottomrule
+    \end{tabular}
+\end{table}
 
-                          & \texttt{gemini-3-flash} & 1 & \texttt{Build Error} \\
-                          &        & 2 & 647 \\
-                          &        & 3 & 647 \\
-                          &        & 4 & 143 \\
-                          &        & 5 & 7 \\
-                          &        & 6 & 7 \\
-                          &        & 7 & 9 \\
-                          &        & 8 & 9 \\
-                          &        & 9 & 0 \\
-                          &        & \textbf{10} & \texttt{\textbf{PASS}} \\
+\begin{table}[t]
+    \centering
+    \small
+    \caption{Apache ZooKeeper: iterations until convergence.}
+    \label{tab:convergence-zookeeper}
+    \begin{tabular}{@{}p{0.25\columnwidth}C{0.25\columnwidth}p{0.20\columnwidth}C{0.15\columnwidth}@{}}
+        \toprule
+        \textbf{Model} & \textbf{Round} & \textbf{Violations} & \textbf{Issues} \\
         \midrule
-        \multirow[t]{22}{=}{Apache ZooKeeper}  & \texttt{claude-sonnet-4-6} & 1 & 22,332 \\
-                          &        & 2 & 22,332 \\
-                          &        & 3 & 25,917 \\
-                          &        & 4 & 1,561 \\
-                          &        & 5 & 146 \\
-                          &        & 6 & 17 \\
-                          &        & 7 & \texttt{Build Error} \\
-                          &        & \textbf{8} & \texttt{\textbf{PASS}} \\
+        \texttt{claude-sonnet-4-6} & 1 & 22,332 & 11 \\
+                                                    & 2 & 22,332 & 8 \\
+                                                    & 3 & 25,917 & 7 \\
+                                                    & 4 & 1,561 & 12 \\
+                                                    & 5 & 146 & 12 \\
+                                                    & 6 & 17 & 7 \\
+                                                    & 7 & \texttt{Build Error} & --- \\
+                                                    & \textbf{8} & \texttt{\textbf{PASS}} & --- \\
+        \cmidrule{1-4}
+        \texttt{gemini-3-flash} & 1 & \texttt{Build Error} & --- \\
+                                            & 2 & 306 & 10 \\
+                                            & 3 & \texttt{Build Error} & --- \\
+                                            & 4 & 411 & 5 \\
+                                            & 5 & 160 & 3 \\
+                                            & 6 & \texttt{Build Error} & --- \\
+                                            & 7 & 160 & 4 \\
+                                            & 8 & \texttt{Build Error} & --- \\
+                                            & 9 & 180 & 3 \\
+                                            & 10 & 180 & 2 \\
+                                            & 11 & 180 & 6 \\
+                                            & 12 & 160 & 6 \\
+                                            & 13 & 30 & 1 \\
+                                            & \textbf{14} & \texttt{\textbf{PASS}} & --- \\
+        \bottomrule
+    \end{tabular}
+\end{table}
 
-                          & \texttt{gemini-3-flash} & 1 & \texttt{Build Error} \\
-                          &        & 2 & 306 \\
-                          &        & 3 & \texttt{Build Error} \\
-                          &        & 4 & 411 \\
-                          &        & 5 & 160 \\
-                          &        & 6 & \texttt{Build Error} \\
-                          &        & 7 & 160 \\
-                          &        & 8 & \texttt{Build Error} \\
-                          &        & 9 & 180 \\
-                          &        & 10 & 180 \\
-                          &        & 11 & 180 \\
-                          &        & 12 & 160 \\
-                          &        & 13 & 30 \\
-                          &        & \textbf{14} & \texttt{\textbf{PASS}} \\
+\begin{table}[t]
+    \centering
+    \small
+    \caption{HashiCorp Consul: iterations until convergence.}
+    \label{tab:convergence-consul}
+    \begin{tabular}{@{}p{0.25\columnwidth}C{0.15\columnwidth}p{0.30\columnwidth}C{0.1\columnwidth}@{}}
+        \toprule
+        \textbf{Model} & \textbf{Round} & \textbf{Violations} & \textbf{Issues} \\
         \midrule
-        \multirow[t]{8}{=}{HashiCorp Consul}   & \texttt{claude-sonnet-4-6} & 1 & \texttt{Schema Fix} \\
-                          &        & 2 & \texttt{Schema Fix} \\
-                          &        & 3 & \texttt{Schema Fix} \\
-                          &        & 4 & \texttt{Schema Fix} \\
-                          &        & \textbf{5} & \texttt{\textbf{PASS}} \\
-                          & \texttt{gemini-3-flash} & 1 & \texttt{Schema/API Error} \\
-                          &        & 2 & \texttt{Schema/API Error} \\
-                          &        & \textbf{3} & \texttt{\textbf{PASS}} \\
+        \texttt{claude-sonnet-4-6} & 1 & \texttt{Schema Fix} & 10 \\
+                                                    & 2 & \texttt{Schema Fix} & 11 \\
+                                                    & 3 & \texttt{Schema Fix} & 15 \\
+                                                    & 4 & \texttt{Schema Fix} & 14 \\
+                                                    & \textbf{5} & \texttt{\textbf{PASS}} & --- \\
+        \cmidrule{1-4}
+        \texttt{gemini-3-flash} & 1 & \texttt{Schema/API Error} & 16 \\
+                                            & 2 & \texttt{Schema/API Error} & 15 \\
+                                            & \textbf{3} & \texttt{\textbf{PASS}} & --- \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\begin{table}[t]
+    \centering
+    \small
+    \caption{Total iterations until convergence.}
+    \label{tab:convergence-total}
+    \begin{tabular}{@{}p{0.35\columnwidth}C{0.35\columnwidth}@{}}
+        \toprule
+        \textbf{Model} & \textbf{Total iterations} \\
         \midrule
-        \multirow[t]{2}{=}{TOTAL} & \texttt{claude-sonnet-4-6} & \textbf{19} &  \\
-                          & \texttt{gemini-3-flash} & \textbf{27} &  \\
+        \texttt{claude-sonnet-4-6} & \textbf{19} \\
+        \texttt{gemini-3-flash} & \textbf{27} \\
         \bottomrule
     \end{tabular}
 \end{table}
@@ -751,7 +789,7 @@ Table~\ref{tab:pr-drift} summarizes the pull request drift results by repository
     \end{tabular}
 \end{table}
 
-Overall, all six model-repository combinations reached executable stable suites with 0 baseline violations. \texttt{claude-sonnet-4-6} required less total convergence effort across repositories, 19 iterations versus 27 for \texttt{gemini-3-flash}. \texttt{claude-sonnet-4-6} produced the stronger suites for ZooKeeper and Consul, while \texttt{gemini-3-flash} produced the stronger suite for Spring Framework.
+Overall, all six model-repository combinations reached executable stable suites with 0 baseline violations. \texttt{claude-sonnet-4-6} required less total convergence effort across repositories, 19 iterations versus 27 for \texttt{gemini-3-flash} (Table~\ref{tab:convergence-total}). \texttt{claude-sonnet-4-6} produced the stronger suites for ZooKeeper and Consul, while \texttt{gemini-3-flash} produced the stronger suite for Spring Framework.
 
 \subsubsection{Discussion}
 \begin{itemize}
