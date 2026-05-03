@@ -117,7 +117,7 @@ public class ArchitectureEnforcementTest {
     @ArchTest
     public static final ArchRule streams_tasks_should_manage_state_stores = classes()
         .that().haveFullyQualifiedName("org.apache.kafka.streams.processor.internals.AbstractTask")
-        .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.streams.state..")
+        .should().dependOnClassesThat().haveFullyQualifiedName("org.apache.kafka.streams.processor.StateStore")
         .allowEmptyShould(false)
         .because("7_apache_kafka.pdf: 'Every stream task in a Kafka Streams application may embed one or more local state stores'");
 

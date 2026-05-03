@@ -40,3 +40,7 @@ Fix: Narrowed the Streams-Consumer dependency rule to target only the `StreamThr
 11. Review #7 Fixes
 Findings: Defensive posture identified as flawed due to potential silent regressions. Targeted rules (like the ConfigRepository guardrail) would silently pass if the underlying classes were renamed. Missing coverage for documented Streams constraints regarding State Stores and Topic Partitions.
 Fix: Hardened all targeting rules by appending `.allowEmptyShould(false)`, forcing failure if the expected classes disappear. Added `streams_tasks_should_manage_state_stores` and `streams_tasks_must_map_to_partitions` rules to complete coverage of the provided documentation.
+
+12. Review #8 Fixes
+Findings: Semantic misalignment in the state store dependency rule. The rule incorrectly expected `AbstractTask` to depend on the concrete `state..` package, which violated Kafka's dependency inversion pattern.
+Fix: Adjusted the `streams_tasks_should_manage_state_stores` rule to target the `org.apache.kafka.streams.processor.StateStore` interface instead of the concrete package, properly reflecting the architectural design.
