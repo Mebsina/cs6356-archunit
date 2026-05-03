@@ -411,6 +411,17 @@ public class ArchitectureEnforcementTest {
             .ignoreDependency(
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.server.config.."),
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.server"))
+            // REGR-09: server.quota runtime managers (ClientQuotaManager,
+            // ControllerMutationQuotaManager) consume network.Session for principal-based
+            // throttling. Session is a small authentication-context value type that is
+            // genuinely cross-cutting. Knock-on of Round-4 REGR-07 reclassification of
+            // server.quota from Server to Core. Narrow form used to preserve detection of
+            // any future server.quota → network.SocketServer regression.
+            .ignoreDependency(
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.server.quota.."),
+                DescribedPredicate.describe(
+                    "is org.apache.kafka.network.Session (authentication context value type)",
+                    (JavaClass c) -> c.getName().equals("org.apache.kafka.network.Session")))
 
             .because("Inferred from package naming conventions (not explicitly stated in the" +
                      " supplied Kafka Streams Architecture PDF). A five-layer hierarchy is assumed:" +

@@ -117,3 +117,12 @@ Fix:
 - REGR-08: Replaced "server.log.remote.." glob in CORE_PACKAGES with bare-package "server.log.remote" (top-level only) plus explicit "server.log.remote.quota.." (from REGR-05); added ignoreDependency(server.log.remote -> storage..) with bare-package source predicate so the carve-out is scoped to TopicPartitionLog only.
 - MOD-05-WIDEN: Added three ignoreDependency clauses: server.config.. -> network.., server.config.. -> raft.., server.config.. -> server (top-level bare package for DynamicThreadPool).
 - LAY-NEW-04: No code change required.
+
+---
+
+## 7. Fix review findings (Review #5 by opus-4-7)
+
+Review #5
+Findings: 2 issues (1 actionable), 1 failing test, 14 total violations — all on kafka_layered_architecture. (1) REGR-09 (HIGH) — server.quota runtime managers (ClientQuotaManager, ControllerMutationQuotaManager) take network.Session as a parameter for principal-based throttling. After REGR-07 moved server.quota from Server to Core, this creates a Core→Server upward dependency. Session is an authentication-context value type genuinely cross-cutting between the quota and network layers. All 14 violations are this single pattern across two classes and 11 methods. (2) POS-03 (informational) — all five Round-4 fixes confirmed working.
+Fix:
+- REGR-09: Added ignoreDependency(server.quota.. → network.Session only) using a narrow DescribedPredicate that matches only org.apache.kafka.network.Session, preserving detection of any future server.quota → network.SocketServer regression.
