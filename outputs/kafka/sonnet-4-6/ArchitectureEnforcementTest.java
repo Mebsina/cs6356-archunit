@@ -193,7 +193,12 @@ public class ArchitectureEnforcementTest {
         "org.apache.kafka.server.policy..",         // AlterConfigPolicy, CreateTopicPolicy SPIs
         "org.apache.kafka.server.purgatory..",      // DelayedOperation framework
         "org.apache.kafka.server.telemetry..",      // KIP-714 ClientTelemetry SPIs
-        "org.apache.kafka.server.log.remote.."      // TopicPartitionLog shared abstraction
+        // REGR-08: narrow glob to top-level only; sub-packages listed explicitly below
+        "org.apache.kafka.server.log.remote",       // TopicPartitionLog (top-level only)
+        // REGR-05: RLMQuotaManager/RLMQuotaMetrics helpers consumed by server.log.remote.storage (Core)
+        "org.apache.kafka.server.log.remote.quota..",
+        // REGR-07: ClientQuotaCallback SPI + QuotaType enum consumed by Core/Consensus
+        "org.apache.kafka.server.quota.."
     };
 
     private static final String[] STORAGE_PACKAGES = {
@@ -222,9 +227,9 @@ public class ArchitectureEnforcementTest {
         "org.apache.kafka.server.controller..",     // ControllerRegistrationManager, broker-side wiring
         "org.apache.kafka.server.logger..",         // Log4jCoreController runtime
         "org.apache.kafka.server.partition..",      // AlterPartitionManager, ReplicaState mutators
-        "org.apache.kafka.server.replica..",        // Replica, ReplicaState
-        "org.apache.kafka.server.quota..",          // ClientQuotaManager runtime
-        "org.apache.kafka.server.log.remote.quota.." // RLMQuotaManager, RLMQuotaMetrics
+        "org.apache.kafka.server.replica.."         // Replica, ReplicaState
+        // REGR-05 removed: server.log.remote.quota → moved to CORE_PACKAGES
+        // REGR-07 removed: server.quota → moved to CORE_PACKAGES
     };
 
     private static final String[] API_PACKAGES = {
@@ -380,6 +385,32 @@ public class ArchitectureEnforcementTest {
             .ignoreDependency(
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.metadata.authorizer.."),
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.controller.."))
+            // REGR-06: server.purgatory is a generic delayed-operation framework (Core) but hosts
+            // storage-aware subclasses (DelayedRemoteFetch, DelayedRemoteListOffsets,
+            // ListOffsetsPartitionStatus) that intentionally reference storage result types.
+            .ignoreDependency(
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.server.purgatory.."),
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.storage.."))
+            // REGR-08: TopicPartitionLog (top-level server.log.remote) returns
+            // Optional<storage.internals.log.UnifiedLog> as part of its public API.
+            // Source predicate uses bare package (no ..) so storage and quota sub-packages
+            // are unaffected by this carve-out.
+            .ignoreDependency(
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.server.log.remote"),
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.storage.."))
+            // MOD-05-WIDEN: AbstractKafkaConfig and DynamicBrokerConfig static aggregation
+            // also reads ConfigDef / RECONFIGURABLE_CONFIGS from network (SocketServerConfigs,
+            // SocketServer), raft (KRaftConfigs, MetadataLogConfig, QuorumConfig), and the
+            // top-level server package (DynamicThreadPool). Same pattern as MOD-05.
+            .ignoreDependency(
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.server.config.."),
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.network.."))
+            .ignoreDependency(
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.server.config.."),
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.raft.."))
+            .ignoreDependency(
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.server.config.."),
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.server"))
 
             .because("Inferred from package naming conventions (not explicitly stated in the" +
                      " supplied Kafka Streams Architecture PDF). A five-layer hierarchy is assumed:" +

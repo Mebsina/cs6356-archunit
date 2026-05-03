@@ -103,3 +103,17 @@ Fix:
 - FP-AUTH-01: Added ignoreDependency(metadata.authorizer.. -> controller..) to mirror the FP-NEW-01 exception already present on metadata_must_not_depend_on_server_runtime.
 - LAY-NEW-03: Replaced .should().resideInAnyPackage(ALL_LAYER_PACKAGES) with a custom ArchCondition<JavaClass> that emits one short sentence per violation instead of the full package list, directing the reader to add the package to the appropriate XXX_PACKAGES constant.
 - Added ArchCondition, ConditionEvents, SimpleConditionEvent imports.
+
+---
+
+## 6. Fix review findings (Review #4 by opus-4-7)
+
+Review #4
+Findings: 6 issues across 1 failing test (86 total violations). All violations on kafka_layered_architecture; every other rule passes. (1) REGR-05 (CRITICAL) — server.log.remote.quota placed in Server in Review #3 but its only callers (RemoteLogManager, RemoteLogReader) live in Core; ~20 violations from Core→Server direction. (2) REGR-06 (CRITICAL) — server.purgatory placed in Core in Review #3 but the same package contains storage-aware subclasses (DelayedRemoteFetch, DelayedRemoteListOffsets, ListOffsetsPartitionStatus) that legitimately reference storage result types; ~35 violations. (3) REGR-07 (HIGH) — server.quota placed in Server in Review #3 but ClientQuotaCallback SPI and QuotaType enum are consumed by Core (server.log.remote.storage) and Consensus (metadata.publisher); ~5 violations. (4) REGR-08 (HIGH) — server.log.remote.. glob in Core includes TopicPartitionLog which returns Optional<storage.internals.log.UnifiedLog>; 1 violation; also the broad glob silently classifies any future server.log.remote.X sub-package as Core. (5) MOD-05-WIDEN (HIGH) — server.config→storage carve-out from Review #3 missed three additional aggregation targets: network (SocketServerConfigs), raft (KRaftConfigs, MetadataLogConfig, QuorumConfig), and server top-level (DynamicThreadPool.RECONFIGURABLE_CONFIGS); ~6 violations. (6) LAY-NEW-04 (LOW) — LAY-NEW-03 guard passes but the custom ArchCondition message format is unobserved; no code change needed.
+Fix:
+- REGR-05: Moved server.log.remote.quota.. from SERVER_PACKAGES to CORE_PACKAGES.
+- REGR-06: Kept server.purgatory.. in CORE_PACKAGES; added ignoreDependency(server.purgatory.. -> storage..) for the storage-aware delayed-op subclasses.
+- REGR-07: Moved server.quota.. from SERVER_PACKAGES to CORE_PACKAGES.
+- REGR-08: Replaced "server.log.remote.." glob in CORE_PACKAGES with bare-package "server.log.remote" (top-level only) plus explicit "server.log.remote.quota.." (from REGR-05); added ignoreDependency(server.log.remote -> storage..) with bare-package source predicate so the carve-out is scoped to TopicPartitionLog only.
+- MOD-05-WIDEN: Added three ignoreDependency clauses: server.config.. -> network.., server.config.. -> raft.., server.config.. -> server (top-level bare package for DynamicThreadPool).
+- LAY-NEW-04: No code change required.
