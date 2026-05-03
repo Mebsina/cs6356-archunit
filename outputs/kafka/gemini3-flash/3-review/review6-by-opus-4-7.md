@@ -2,7 +2,7 @@
 
 **Project**: kafka
 **Generator Model**: gemini3-flash
-**Reviewer Model**: gemini3-pro
+**Reviewer Model**: opus-4-7
 **Review**: #6
 **File reviewed**: `outputs/kafka/gemini3-flash/ArchitectureEnforcementTest.java`
 **Surefire evidence**: `outputs/kafka/gemini3-flash/target/surefire-reports/ArchitectureEnforcementTest.txt`

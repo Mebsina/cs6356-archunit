@@ -111,13 +111,29 @@ public class ArchitectureEnforcementTest {
     public static final ArchRule streams_must_depend_on_consumer_for_fault_tolerance = classes()
         .that().haveFullyQualifiedName("org.apache.kafka.streams.processor.internals.StreamThread")
         .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.clients.consumer..")
+        .allowEmptyShould(false)
         .because("7_apache_kafka.pdf: 'Streams leverages the consumer client for fault tolerance.'");
+
+    @ArchTest
+    public static final ArchRule streams_tasks_should_manage_state_stores = classes()
+        .that().haveFullyQualifiedName("org.apache.kafka.streams.processor.internals.AbstractTask")
+        .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.streams.state..")
+        .allowEmptyShould(false)
+        .because("7_apache_kafka.pdf: 'Every stream task in a Kafka Streams application may embed one or more local state stores'");
+
+    @ArchTest
+    public static final ArchRule streams_tasks_must_map_to_partitions = classes()
+        .that().haveFullyQualifiedName("org.apache.kafka.streams.processor.internals.AbstractTask")
+        .should().dependOnClassesThat().haveFullyQualifiedName("org.apache.kafka.common.TopicPartition")
+        .allowEmptyShould(false)
+        .because("7_apache_kafka.pdf: 'Each stream partition ... maps to a Kafka topic partition'");
 
     @ArchTest
     public static final ArchRule metadata_must_keep_config_repository_spi = classes()
         .that().haveSimpleName("ConfigRepository")
         .and().resideInAPackage("org.apache.kafka.metadata..")
         .should().beInterfaces()
+        .allowEmptyShould(false)
         .because("Layered rule uses simpleNameEndingWith to carve out this SPI. Ensure it exists.");
 
     @ArchTest

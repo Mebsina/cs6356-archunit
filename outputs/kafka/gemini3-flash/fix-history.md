@@ -36,3 +36,7 @@ Fix: Added the required `Location` import to ensure compilation.
 10. Review #6 Fixes
 Findings: The positive constraint `streams_must_depend_on_consumer_for_fault_tolerance` was too broad, requiring every internal processor to depend on the consumer API and causing 190 false positives. The `metadata_must_keep_config_repository_spi` guardrail was accidentally removed in the previous iteration.
 Fix: Narrowed the Streams-Consumer dependency rule to target only the `StreamThread` class. Restored the `metadata_must_keep_config_repository_spi` guardrail rule to protect the simple-name string reference used in the layered architecture's `.ignoreDependency` clause.
+
+11. Review #7 Fixes
+Findings: Defensive posture identified as flawed due to potential silent regressions. Targeted rules (like the ConfigRepository guardrail) would silently pass if the underlying classes were renamed. Missing coverage for documented Streams constraints regarding State Stores and Topic Partitions.
+Fix: Hardened all targeting rules by appending `.allowEmptyShould(false)`, forcing failure if the expected classes disappear. Added `streams_tasks_should_manage_state_stores` and `streams_tasks_must_map_to_partitions` rules to complete coverage of the provided documentation.
