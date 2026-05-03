@@ -299,15 +299,13 @@ public class ArchitectureEnforcementTest {
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.storage.."),
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.metadata.properties.."))
             // MAP-03: storage -> metadata.ConfigRepository (SAM interface for dependency inversion).
-            // LAY-NEW-02: The bare package without ".." is intentional — it matches ONLY classes
-            // in org.apache.kafka.metadata itself (i.e., ConfigRepository), NOT any sub-packages.
-            // Do NOT change to "metadata.." as that would suppress all storage->metadata violations.
+            // LAY-NEW-02: intentionally class-exact (PREC-02) — matches only ConfigRepository,
+            // not any other top-level org.apache.kafka.metadata.* class.
             .ignoreDependency(
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.storage.."),
                 DescribedPredicate.describe(
-                    "is org.apache.kafka.metadata.ConfigRepository (top-level SAM only)",
-                    (JavaClass c) -> c.getName().startsWith("org.apache.kafka.metadata.")
-                        && !c.getName().substring("org.apache.kafka.metadata.".length()).contains(".")))
+                    "is org.apache.kafka.metadata.ConfigRepository",
+                    (JavaClass c) -> c.getName().equals("org.apache.kafka.metadata.ConfigRepository")))
             // MOD-01: server.config implements interfaces defined in the metadata layer (SPI inversion)
             .ignoreDependency(
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.server.config.."),
@@ -316,10 +314,31 @@ public class ArchitectureEnforcementTest {
             .ignoreDependency(
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.server.log.remote.storage.."),
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.storage.."))
-            // MOD-01: broker initiates outbound RPCs to other brokers using the client library
+            // MOD-01 (narrowed — OVR-01): broker outbound RPC targets a documented set of
+            // clients types. Listing them explicitly preserves detection of unintended new
+            // server.* → clients.* dependencies (e.g., server.replica → clients.consumer).
             .ignoreDependency(
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.server.."),
-                JavaClass.Predicates.resideInAPackage("org.apache.kafka.clients.."))
+                DescribedPredicate.describe(
+                    "is a documented broker-outbound-RPC type in clients",
+                    (JavaClass c) -> {
+                        String n = c.getName();
+                        return n.equals("org.apache.kafka.clients.KafkaClient")
+                            || n.startsWith("org.apache.kafka.clients.KafkaClient$")
+                            || n.equals("org.apache.kafka.clients.NetworkClient")
+                            || n.startsWith("org.apache.kafka.clients.NetworkClient$")
+                            || n.equals("org.apache.kafka.clients.NodeApiVersions")
+                            || n.equals("org.apache.kafka.clients.ClientResponse")
+                            || n.equals("org.apache.kafka.clients.ClientRequest")
+                            || n.equals("org.apache.kafka.clients.RequestCompletionHandler")
+                            || n.equals("org.apache.kafka.clients.Metadata")
+                            || n.startsWith("org.apache.kafka.clients.Metadata$")
+                            || n.equals("org.apache.kafka.clients.MetadataUpdater")
+                            || n.equals("org.apache.kafka.clients.ApiVersions")
+                            || n.equals("org.apache.kafka.clients.ManualMetadataUpdater")
+                            || n.equals("org.apache.kafka.clients.CommonClientConfigs")
+                            || n.startsWith("org.apache.kafka.clients.CommonClientConfigs$");
+                    }))
             // MOD-01: KRaft Raft engine uses KafkaClient for inter-broker network communication
             .ignoreDependency(
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.raft.."),
@@ -349,15 +368,15 @@ public class ArchitectureEnforcementTest {
             .ignoreDependency(
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.server.config.."),
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.storage.."))
-            // MOD-06: server.metrics observes higher-layer state for reporting
-            // (BrokerServerMetrics reports MetadataProvenance; NodeMetrics reports QuorumFeatures)
+            // MOD-06 (idiomatic — PREC-01): server.metrics observes higher-layer state for
+            // reporting (BrokerServerMetrics reports MetadataProvenance; NodeMetrics reports
+            // QuorumFeatures). Using resideInAnyPackage avoids the unanchored startsWith gotcha.
             .ignoreDependency(
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.server.metrics.."),
-                DescribedPredicate.describe(
-                    "is image / metadata / controller (metrics observation targets)",
-                    (JavaClass c) -> c.getPackageName().startsWith("org.apache.kafka.image")
-                                 || c.getPackageName().startsWith("org.apache.kafka.metadata")
-                                 || c.getPackageName().startsWith("org.apache.kafka.controller")))
+                JavaClass.Predicates.resideInAnyPackage(
+                    "org.apache.kafka.image..",
+                    "org.apache.kafka.metadata..",
+                    "org.apache.kafka.controller.."))
             // MOD-07: server.util.NetworkPartitionMetadataClient uses metadata.MetadataCache SAM
             .ignoreDependency(
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.server.util.."),
@@ -367,12 +386,25 @@ public class ArchitectureEnforcementTest {
             .ignoreDependency(
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.storage.."),
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.server.log.remote.metadata.storage.generated.."))
-            // MOD-09: common.{MessageFormatter,requests.ApiVersionsResponse,requests.ShareFetchRequest,
-            // security.authenticator.SaslClientAuthenticator} share types with clients
-            // (ConsumerRecord, NodeApiVersions, ShareAcquireMode, NetworkClient.parseResponse).
-            // This is broader than MOD-02's common->clients.admin and subsumes it.
+            // MOD-09 (narrowed — OVR-02, part 1): clients.admin enums used as wire-format
+            // primitives by common.* classes (subsumes MOD-02's common -> clients.admin clause).
             .ignoreDependency(
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.common.."),
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.clients.admin.."))
+            // MOD-09 (narrowed — OVR-02, part 2): four documented common.* classes that share
+            // types with non-admin clients. A fifth crossing will fire and require a decision.
+            .ignoreDependency(
+                DescribedPredicate.describe(
+                    "is one of four common.* classes that share types with clients",
+                    (JavaClass c) -> {
+                        String n = c.getName();
+                        return n.equals("org.apache.kafka.common.MessageFormatter")
+                            || n.equals("org.apache.kafka.common.requests.ApiVersionsResponse")
+                            || n.startsWith("org.apache.kafka.common.requests.ApiVersionsResponse$")
+                            || n.equals("org.apache.kafka.common.requests.ShareFetchRequest")
+                            || n.startsWith("org.apache.kafka.common.requests.ShareFetchRequest$")
+                            || n.equals("org.apache.kafka.common.security.authenticator.SaslClientAuthenticator");
+                    }),
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.clients.."))
             // MOD-10: RemoteLogManager (SPI side, Core) instantiates the default
             // ClassLoaderAwareRemoteLogMetadataManager (runtime side, Server) — standard factory pattern
@@ -652,10 +684,10 @@ public class ArchitectureEnforcementTest {
         noClasses()
             .that().resideInAPackage("org.apache.kafka.controller..")
             .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.coordinator..")
-            .because("Inferred from package naming. The KRaft controller manages cluster-level" +
-                     " metadata (topic/partition assignments, broker epochs) via the Raft log." +
-                     " Importing coordinator types would conflate cluster management with group" +
-                     " coordination and create intra-Server coupling.");
+            .because("Inferred from package naming. FUTURE-PROOFING ONLY: org.apache.kafka.coordinator" +
+                     " is empty in the current scanned classpath, so this rule is vacuous today." +
+                     " It guards against a future regression where group-coordinator classes are added" +
+                     " under coordinator.. and controller starts depending on them.");
 
     @ArchTest
     public static final ArchRule network_must_not_depend_on_controller =
@@ -677,7 +709,7 @@ public class ArchitectureEnforcementTest {
                 "org.apache.kafka.server.share..",
                 "org.apache.kafka.server.transaction..",
                 "org.apache.kafka.controller..",
-                "org.apache.kafka.coordinator.."
+                "org.apache.kafka.coordinator.."  // FUTURE-PROOFING ONLY: empty in current scan
             )
             .because("Inferred from package naming. The NIO network layer must remain agnostic of" +
                      " broker request handling, share-group logic, transaction management, KRaft" +
