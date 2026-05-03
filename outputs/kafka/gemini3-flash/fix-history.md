@@ -28,3 +28,7 @@ Fix: Switched to predicate-based layer definitions (`SERVER_LAYER_PREDICATE`) to
 8. Review #5 Fixes
 Findings: `GeneratedDtos` lacked access to `Support`, causing massive false-positive violations. 12 top-level packages were unmapped. Contradiction between layered rule (allowing Application->Server) and standalone rules (blocking it). Missing rules for Streams-specific fault tolerance mentioned in documentation. Rationales cited undocumented decisions.
 Fix: Added `GeneratedDtos` to `Support` access list. Mapped all 12 missing top-level packages (admin, api, network, etc.) to layers. Restricted `Server` and `Infrastructure` access to eliminate contradictions. Added `streams_must_depend_on_consumer_for_fault_tolerance` rule. Neutralized rationales to reflect topological inference. Added `.ignoreDependency` for `LogManager`->`ConfigRepository` SPI seam in the layered rule.
+
+9. Syntax Fix (Location Import)
+Findings: Missing import for `com.tngtech.archunit.core.importer.Location` in the custom `ExcludeBuildArtifacts` implementation introduced in Review #5.
+Fix: Added the required `Location` import to ensure compilation.
