@@ -17,20 +17,27 @@
  * 1. Core (bottom)
  *    Foundational shared utilities depended upon by every other layer.
  *    Includes the common types, security primitives, and the sub-packages of
- *    org.apache.kafka.server that are published as shared libraries rather than
- *    broker-runtime code (common, util, metrics, fault, authorizer, immutable,
- *    config, record, storage.log, log.remote.storage).
- *    NOTE: org.apache.kafka.message, config, logger, deferred, queue, timeline
- *    appear in the package listing but contain no classes in the scanned
- *    classpath; they are omitted from layer definitions to avoid vacuous rules.
+ *    org.apache.kafka.server published as shared libraries rather than
+ *    broker-runtime code.
+ *    NOTE (REGR-01): config, deferred, logger, queue, and timeline were
+ *    incorrectly declared empty in Review #1 based on a grep that only
+ *    checks packages appearing as violation sources. These packages contain
+ *    44 real production classes (BrokerReconfigurable, DeferredEventQueue,
+ *    StateChangeLogger, KafkaEventQueue, TimelineHashMap, SnapshotRegistry, etc.)
+ *    and are restored to Core here.
  *    Packages:
  *      - org.apache.kafka.common..                    (shared types, serialization)
  *      - org.apache.kafka.security..                  (auth, ACL, SSL primitives)
- *      - org.apache.kafka.server.common..             (ApiMessageAndVersion, MetadataVersion, OffsetAndEpoch)
- *      - org.apache.kafka.server.util..               (Scheduler, ShutdownableThread, Timer)
+ *      - org.apache.kafka.config..                    (BrokerReconfigurable)
+ *      - org.apache.kafka.deferred..                  (DeferredEvent, DeferredEventQueue)
+ *      - org.apache.kafka.logger..                    (StateChangeLogger)
+ *      - org.apache.kafka.queue..                     (EventQueue, KafkaEventQueue)
+ *      - org.apache.kafka.timeline..                  (TimelineHashMap, SnapshotRegistry)
+ *      - org.apache.kafka.server.common..             (ApiMessageAndVersion, MetadataVersion)
+ *      - org.apache.kafka.server.util..               (Scheduler, ShutdownableThread)
  *      - org.apache.kafka.server.metrics..            (KafkaMetricsGroup, TimeRatio)
  *      - org.apache.kafka.server.fault..              (FaultHandler, FaultHandlerException)
- *      - org.apache.kafka.server.authorizer..         (Authorizer SPI, AuthorizationResult, AclDeleteResult)
+ *      - org.apache.kafka.server.authorizer..         (Authorizer SPI, AuthorizationResult)
  *      - org.apache.kafka.server.immutable..          (ImmutableMap, ImmutableNavigableSet)
  *      - org.apache.kafka.server.config..             (ConfigSynonym, ServerLogConfigs)
  *      - org.apache.kafka.server.record..             (record utilities)
@@ -39,32 +46,33 @@
  *
  * 2. Storage
  *    Manages durable persistence of log segments and state store snapshots.
- *    The tiered package appears in the listing but is empty in the scanned
- *    classpath and is therefore excluded.
- *    Depends on Core.
  *    Packages:
  *      - org.apache.kafka.storage..  (log segment and store abstractions)
  *      - org.apache.kafka.snapshot.. (state store snapshot management)
+ *    NOTE (MOD-01): snapshot.SnapshotReader returns Iterator<raft.Batch<T>>,
+ *    making snapshot -> raft a deliberate API surface. This is excluded via
+ *    ignoreDependency on the layered rule.
  *
  * 3. Consensus
- *    KRaft (Kafka Raft) consensus protocol engine, metadata record definitions,
- *    and the point-in-time cluster metadata image built from the Raft log.
+ *    KRaft consensus protocol engine, metadata records, and the cluster image.
  *    Depends on Core and Storage.
  *    Packages:
  *      - org.apache.kafka.raft..     (KRaft consensus protocol engine)
  *      - org.apache.kafka.metadata.. (broker/topic/partition metadata records)
  *      - org.apache.kafka.image..    (point-in-time cluster metadata image)
- *    NOTE: org.apache.kafka.metadata.properties (MetaProperties, PropertiesUtils)
- *    is a bootstrap identity library also depended upon by Storage. Dependencies
- *    from Storage to metadata.properties and to the top-level metadata package
- *    (ConfigRepository SAM) are acknowledged legitimate uses and are excluded
- *    from the layered rule via ignoreDependency.
+ *    NOTE (REGR-02): metadata -> image is the documented KIP-500 direction:
+ *    metadata.publisher.* classes implement image.publisher.MetadataPublisher.
+ *    The rule metadata_must_not_depend_on_image (added in Review #1) was
+ *    inverted and has been replaced by image_must_not_depend_on_metadata_publisher_internals.
+ *    NOTE (MAP-03): storage -> metadata.properties and storage -> metadata
+ *    (ConfigRepository SAM) are legitimate uses excluded via ignoreDependency.
  *
  * 4. Server
- *    Broker runtime: KRaft controller quorum, NIO network I/O layer, and the
- *    broker lifecycle classes at the top-level server package. The coordinator
- *    package appears in the listing but is empty in the scanned classpath and
- *    is therefore excluded from the layer definition.
+ *    Broker runtime (broker lifecycle classes, KRaft controller quorum, NIO
+ *    network layer). The coordinator package appears in the listing but is
+ *    empty in the scanned classpath and is excluded from the Server layer.
+ *    NOTE (MOD-01): several known SPI inversions and outbound-RPC patterns
+ *    are excluded via ignoreDependency on the layered rule.
  *    Depends on Core, Storage, and Consensus.
  *    Packages:
  *      - org.apache.kafka.server                         (broker lifecycle, top-level only)
@@ -75,11 +83,12 @@
  *      - org.apache.kafka.network..                      (NIO SocketServer, Processors)
  *
  * 5. API (top)
- *    Client-facing and operator-facing surface. The api and admin packages
- *    appear in the listing but are empty in the scanned classpath. The admin
- *    client physically lives in org.apache.kafka.clients.admin and is therefore
- *    covered by the clients.. glob. The tools package legitimately depends on
- *    connect for the connect-plugin-path CLI and is exempted from that rule.
+ *    Client-facing and operator-facing surface. The api and admin packages are
+ *    empty in the scanned classpath. The admin client lives in clients.admin.
+ *    NOTE (MOD-02): clients.admin.* enums (ScramMechanism, AlterConfigOp$OpType,
+ *    ConfigEntry$ConfigSource, FeatureUpdate$UpgradeType) are used as shared DTO
+ *    types by common.requests, controller, and image. These uses are excluded via
+ *    ignoreDependency on the layered rule.
  *    Packages:
  *      - org.apache.kafka.clients.. (producer, consumer, admin client incl. clients.admin)
  *      - org.apache.kafka.connect.. (Kafka Connect framework)
@@ -96,30 +105,31 @@
  *       test-fixtures artifact; not production code subject to layering rules.
  *
  *   - org.apache.kafka.jmh
- *       JMH benchmark classes; build-time performance measurement utilities
- *       not present at production runtime. Excluded via TrogdorAndJmhExclusion.
+ *       JMH benchmark classes; excluded via TrogdorAndJmhExclusion ImportOption.
  *
  *   - org.apache.kafka.trogdor
- *       Fault-injection and distributed test coordination framework used only
- *       in system/integration test environments. Excluded via TrogdorAndJmhExclusion.
+ *       Fault-injection and distributed test coordination framework; excluded
+ *       via TrogdorAndJmhExclusion ImportOption.
  *
  *   - org.apache.kafka.api, org.apache.kafka.admin, org.apache.kafka.coordinator,
- *     org.apache.kafka.tiered, org.apache.kafka.message, org.apache.kafka.config,
- *     org.apache.kafka.logger, org.apache.kafka.deferred, org.apache.kafka.queue,
- *     org.apache.kafka.timeline
- *       All of these packages appear in the package listing but contain zero
- *       classes in the scanned classpath. They are omitted from layer definitions
- *       to prevent vacuous rules that either fail (failOnEmptyShould) or silently
- *       enforce nothing.
+ *     org.apache.kafka.tiered, org.apache.kafka.message
+ *       These packages appear in the package listing but contain zero classes in
+ *       the scanned classpath. They are omitted from layer definitions to prevent
+ *       vacuous rules. Re-verify by direct classpath inspection before assuming
+ *       emptiness if the scan scope changes.
  */
 package org.archunit.kafka;
 
+import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.core.importer.Location;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
+
+import java.util.Arrays;
+import java.util.stream.Stream;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
@@ -147,16 +157,85 @@ public class ArchitectureEnforcementTest {
     }
 
     // =========================================================================
+    // LAYER PACKAGE CONSTANTS (LAY-NEW-01)
+    // Shared between the layeredArchitecture() rule and the every-class guard
+    // so that both stay in sync when packages are added or removed.
+    // =========================================================================
+
+    // REGR-01: config, deferred, logger, queue, timeline restored — they were
+    // incorrectly declared empty in Review #1. Each contains real production classes.
+    private static final String[] CORE_PACKAGES = {
+        "org.apache.kafka.common..",
+        "org.apache.kafka.security..",
+        "org.apache.kafka.config..",
+        "org.apache.kafka.deferred..",
+        "org.apache.kafka.logger..",
+        "org.apache.kafka.queue..",
+        "org.apache.kafka.timeline..",
+        "org.apache.kafka.server.common..",
+        "org.apache.kafka.server.util..",
+        "org.apache.kafka.server.metrics..",
+        "org.apache.kafka.server.fault..",
+        "org.apache.kafka.server.authorizer..",
+        "org.apache.kafka.server.immutable..",
+        "org.apache.kafka.server.config..",
+        "org.apache.kafka.server.record..",
+        "org.apache.kafka.server.storage.log..",
+        "org.apache.kafka.server.log.remote.storage.."
+    };
+
+    private static final String[] STORAGE_PACKAGES = {
+        "org.apache.kafka.storage..",
+        "org.apache.kafka.snapshot.."
+    };
+
+    private static final String[] CONSENSUS_PACKAGES = {
+        "org.apache.kafka.raft..",
+        "org.apache.kafka.metadata..",
+        "org.apache.kafka.image.."
+    };
+
+    private static final String[] SERVER_PACKAGES = {
+        "org.apache.kafka.server",
+        "org.apache.kafka.server.share..",
+        "org.apache.kafka.server.transaction..",
+        "org.apache.kafka.server.log.remote.metadata.storage..",
+        "org.apache.kafka.controller..",
+        "org.apache.kafka.network.."
+    };
+
+    private static final String[] API_PACKAGES = {
+        "org.apache.kafka.clients..",
+        "org.apache.kafka.connect..",
+        "org.apache.kafka.streams..",
+        "org.apache.kafka.tools..",
+        "org.apache.kafka.shell.."
+    };
+
+    /** All production layer packages combined; used by the every-class guard. */
+    private static final String[] ALL_LAYER_PACKAGES = Stream.of(
+            CORE_PACKAGES, STORAGE_PACKAGES, CONSENSUS_PACKAGES,
+            SERVER_PACKAGES, API_PACKAGES)
+        .flatMap(Arrays::stream)
+        .toArray(String[]::new);
+
+    // =========================================================================
     // LAYERED ARCHITECTURE RULE
     // Enforces the five-layer hierarchy: Core < Storage < Consensus < Server < API.
-    // Layer definitions have been corrected from the initial generation:
-    //   - MAP-01: org.apache.kafka.admin removed (empty; admin client is clients.admin)
-    //   - MAP-02: org.apache.kafka.server split into Core shared-util sub-packages
-    //             and Server runtime-only sub-packages to eliminate 1,467 false positives
-    //   - VAC-02: Empty layer members removed (api, admin, coordinator, tiered, message,
-    //             config, logger, deferred, queue, timeline)
-    //   - MAP-03: storage -> metadata.properties and storage -> metadata (ConfigRepository)
-    //             are acknowledged legitimate uses; excluded via ignoreDependency
+    //
+    // ignoreDependency clauses address known legitimate cross-layer patterns
+    // (MOD-01, MOD-02, MAP-03) that are intrinsic to Kafka's design and cannot
+    // be reconciled with a strict linear layer model:
+    //
+    //   MAP-03: storage -> metadata.properties (bootstrap identity helper) and
+    //           storage -> metadata.ConfigRepository (SAM / dependency inversion)
+    //   MOD-01: server.config -> metadata (SPI: server defines interface, metadata implements it)
+    //           server.log.remote.storage -> storage (SPI inversion)
+    //           server -> clients (broker initiates outbound RPCs via KafkaClient/NetworkClient)
+    //           raft -> clients (KafkaNetworkChannel uses KafkaClient for inter-broker comms)
+    //           snapshot -> raft (SnapshotReader's iterator API exposes raft.Batch<T>)
+    //   MOD-02: common, controller, image -> clients.admin (ScramMechanism, AlterConfigOp,
+    //           ConfigEntry$ConfigSource, FeatureUpdate$UpgradeType used as shared DTO types)
     // =========================================================================
 
     @ArchTest
@@ -164,44 +243,11 @@ public class ArchitectureEnforcementTest {
         layeredArchitecture()
             .consideringOnlyDependenciesInLayers()
 
-            .layer("Core").definedBy(
-                "org.apache.kafka.common..",
-                "org.apache.kafka.security..",
-                "org.apache.kafka.server.common..",
-                "org.apache.kafka.server.util..",
-                "org.apache.kafka.server.metrics..",
-                "org.apache.kafka.server.fault..",
-                "org.apache.kafka.server.authorizer..",
-                "org.apache.kafka.server.immutable..",
-                "org.apache.kafka.server.config..",
-                "org.apache.kafka.server.record..",
-                "org.apache.kafka.server.storage.log..",
-                "org.apache.kafka.server.log.remote.storage.."
-            )
-            .layer("Storage").definedBy(
-                "org.apache.kafka.storage..",
-                "org.apache.kafka.snapshot.."
-            )
-            .layer("Consensus").definedBy(
-                "org.apache.kafka.raft..",
-                "org.apache.kafka.metadata..",
-                "org.apache.kafka.image.."
-            )
-            .layer("Server").definedBy(
-                "org.apache.kafka.server",
-                "org.apache.kafka.server.share..",
-                "org.apache.kafka.server.transaction..",
-                "org.apache.kafka.server.log.remote.metadata.storage..",
-                "org.apache.kafka.controller..",
-                "org.apache.kafka.network.."
-            )
-            .layer("API").definedBy(
-                "org.apache.kafka.clients..",
-                "org.apache.kafka.connect..",
-                "org.apache.kafka.streams..",
-                "org.apache.kafka.tools..",
-                "org.apache.kafka.shell.."
-            )
+            .layer("Core").definedBy(CORE_PACKAGES)
+            .layer("Storage").definedBy(STORAGE_PACKAGES)
+            .layer("Consensus").definedBy(CONSENSUS_PACKAGES)
+            .layer("Server").definedBy(SERVER_PACKAGES)
+            .layer("API").definedBy(API_PACKAGES)
 
             .whereLayer("API").mayNotBeAccessedByAnyLayer()
             .whereLayer("Server").mayOnlyBeAccessedByLayers("API")
@@ -209,28 +255,64 @@ public class ArchitectureEnforcementTest {
             .whereLayer("Storage").mayOnlyBeAccessedByLayers("Consensus", "Server", "API")
             .whereLayer("Core").mayOnlyBeAccessedByLayers("Storage", "Consensus", "Server", "API")
 
-            // MAP-03: storage.LogManager -> metadata.ConfigRepository (SAM interface) and
-            // storage -> metadata.properties.MetaProperties (bootstrap identity helper) are
-            // deliberate downward uses via stable interfaces; not true layering violations.
+            // MAP-03: storage -> metadata.properties (MetaProperties bootstrap identity helper)
             .ignoreDependency(
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.storage.."),
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.metadata.properties.."))
+            // MAP-03: storage -> metadata.ConfigRepository (SAM interface for dependency inversion).
+            // LAY-NEW-02: The bare package without ".." is intentional — it matches ONLY classes
+            // in org.apache.kafka.metadata itself (i.e., ConfigRepository), NOT any sub-packages.
+            // Do NOT change to "metadata.." as that would suppress all storage->metadata violations.
             .ignoreDependency(
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.storage.."),
-                JavaClass.Predicates.resideInAPackage("org.apache.kafka.metadata"))
+                DescribedPredicate.describe(
+                    "is org.apache.kafka.metadata.ConfigRepository (top-level SAM only)",
+                    (JavaClass c) -> c.getName().startsWith("org.apache.kafka.metadata.")
+                        && !c.getName().substring("org.apache.kafka.metadata.".length()).contains(".")))
+            // MOD-01: server.config implements interfaces defined in the metadata layer (SPI inversion)
+            .ignoreDependency(
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.server.config.."),
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.metadata.."))
+            // MOD-01: server.log.remote.storage implements storage.internals interfaces (SPI inversion)
+            .ignoreDependency(
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.server.log.remote.storage.."),
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.storage.."))
+            // MOD-01: broker initiates outbound RPCs to other brokers using the client library
+            .ignoreDependency(
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.server.."),
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.clients.."))
+            // MOD-01: KRaft Raft engine uses KafkaClient for inter-broker network communication
+            .ignoreDependency(
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.raft.."),
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.clients.."))
+            // MOD-01: SnapshotReader's iterator API surface exposes raft.Batch<T> types
+            .ignoreDependency(
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.snapshot.."),
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.raft.."))
+            // MOD-02: clients.admin DTOs (ScramMechanism, AlterConfigOp$OpType, etc.) are used
+            // as wire-format primitives by common.requests, controller, and image serialization code
+            .ignoreDependency(
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.common.."),
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.clients.admin.."))
+            .ignoreDependency(
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.controller.."),
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.clients.admin.."))
+            .ignoreDependency(
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.image.."),
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.clients.admin.."))
 
-            .because("Inferred from package naming conventions (not explicitly stated in the supplied" +
-                     " Kafka Streams Architecture PDF). A five-layer hierarchy is assumed: Core," +
-                     " Storage, Consensus, Server, and API. Each layer may only depend on layers" +
-                     " below it. Validate against KIP-500 / KIP-405 / design.html before treating" +
-                     " this as authoritative.");
+            .because("Inferred from package naming conventions (not explicitly stated in the" +
+                     " supplied Kafka Streams Architecture PDF). A five-layer hierarchy is assumed:" +
+                     " Core, Storage, Consensus, Server, and API. Known SPI inversions, shared DTO" +
+                     " types, and outbound-RPC patterns are excluded via ignoreDependency. Validate" +
+                     " against KIP-500 / KIP-405 / design.html before treating this as authoritative.");
 
     // =========================================================================
     // LAYER COVERAGE GUARD (LAY-01)
     // Ensures that every scanned production class belongs to at least one
-    // defined layer. Without this, consideringOnlyDependenciesInLayers() silently
-    // ignores classes in unmapped packages, masking future architectural drift
-    // when new top-level packages are added to the codebase.
+    // defined layer. Uses ALL_LAYER_PACKAGES (derived from the per-layer
+    // constants above) so this guard and the layeredArchitecture() definition
+    // stay in sync (LAY-NEW-01).
     // =========================================================================
 
     @ArchTest
@@ -242,23 +324,7 @@ public class ArchitectureEnforcementTest {
                 "org.apache.kafka.jmh..",
                 "org.apache.kafka.trogdor.."
             )
-            .should().resideInAnyPackage(
-                "org.apache.kafka.common..",
-                "org.apache.kafka.security..",
-                "org.apache.kafka.server..",
-                "org.apache.kafka.storage..",
-                "org.apache.kafka.snapshot..",
-                "org.apache.kafka.raft..",
-                "org.apache.kafka.metadata..",
-                "org.apache.kafka.image..",
-                "org.apache.kafka.controller..",
-                "org.apache.kafka.network..",
-                "org.apache.kafka.clients..",
-                "org.apache.kafka.connect..",
-                "org.apache.kafka.streams..",
-                "org.apache.kafka.tools..",
-                "org.apache.kafka.shell.."
-            )
+            .should().resideInAnyPackage(ALL_LAYER_PACKAGES)
             .because("Inferred from package naming. New top-level packages must be explicitly" +
                      " assigned to a layer; otherwise consideringOnlyDependenciesInLayers() will" +
                      " silently exempt their classes from all dependency checks.");
@@ -267,10 +333,10 @@ public class ArchitectureEnforcementTest {
     // FINE-GRAINED INTRA-LAYER RULES: API LAYER
     // The API layer contains several independently-deployable modules that must
     // not form sibling cross-dependencies. Rules cover both directions for each
-    // pair. NOTE: tools -> connect is intentionally ABSENT (FP-01): the
-    // connect-plugin-path CLI (ConnectPluginPath, ManifestWorkspace) in the tools
-    // package legitimately depends on connect.runtime.isolation by design.
-    // NOTE: The phantom admin package (MAP-01) is replaced by clients.admin rules.
+    // pair where meaningful.
+    // NOTE (REGR-03): tools_must_not_depend_on_connect was deleted in Review #1
+    // instead of being scoped. It is restored here with an explicit exclusion
+    // for the ConnectPluginPath CLI family, which legitimately depends on Connect.
     // =========================================================================
 
     @ArchTest
@@ -279,9 +345,9 @@ public class ArchitectureEnforcementTest {
             .that().resideInAPackage("org.apache.kafka.streams..")
             .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.connect..")
             .because("Inferred from package naming. Kafka Streams is a standalone stream processing" +
-                     " library embedded in application processes; it must not depend on the Kafka" +
-                     " Connect framework, which is a separate data-integration runtime. Such a" +
-                     " dependency would force all Streams users to transitively pull in Connect.");
+                     " library; it must not depend on the Kafka Connect framework, which is a" +
+                     " separate data-integration runtime. Such a dependency would force all Streams" +
+                     " users to transitively pull in Connect.");
 
     @ArchTest
     public static final ArchRule connect_must_not_depend_on_streams =
@@ -290,62 +356,81 @@ public class ArchitectureEnforcementTest {
             .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.streams..")
             .because("Inferred from package naming. Kafka Connect is a general-purpose connector" +
                      " runtime with no architectural dependency on Kafka Streams. Importing Streams" +
-                     " types from Connect would create a circular sibling coupling at the top of the" +
-                     " dependency hierarchy and bloat the Connect artifact.");
+                     " types from Connect would create a circular sibling coupling.");
 
     @ArchTest
     public static final ArchRule streams_must_not_depend_on_tools =
         noClasses()
             .that().resideInAPackage("org.apache.kafka.streams..")
             .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.tools..")
-            .because("Inferred from package naming. Kafka Streams is an embeddable stream processing" +
-                     " library and must not import command-line broker-management tools. Such a" +
-                     " dependency would pull operational utilities into the application library.");
+            .because("Inferred from package naming. FUTURE-PROOFING ONLY: Streams does not" +
+                     " currently depend on tools, but a future Streams feature that imports a" +
+                     " tool's helper class would create an unintended sibling coupling. This rule" +
+                     " guards against that regression.");
 
     @ArchTest
     public static final ArchRule streams_must_not_depend_on_shell =
         noClasses()
             .that().resideInAPackage("org.apache.kafka.streams..")
             .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.shell..")
-            .because("Inferred from package naming. The Kafka shell is an administrative REPL for" +
-                     " cluster inspection; Kafka Streams must not import shell utilities, as there" +
-                     " is no architectural relationship between stream processing and the admin shell.");
+            .because("Inferred from package naming. FUTURE-PROOFING ONLY: Kafka Streams must not" +
+                     " import the admin shell runtime. This rule guards against a future regression" +
+                     " where a Streams feature accidentally pulls in shell utilities.");
 
     @ArchTest
     public static final ArchRule connect_must_not_depend_on_tools =
         noClasses()
             .that().resideInAPackage("org.apache.kafka.connect..")
             .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.tools..")
-            .because("Inferred from package naming. The Kafka Connect framework must not depend on" +
-                     " broker-management CLI tools. Connect manages its own REST-based tooling and" +
-                     " must remain independently deployable from the tools artifact.");
+            .because("Inferred from package naming. FUTURE-PROOFING ONLY: The Kafka Connect" +
+                     " framework must not depend on broker-management CLI tools. Connect manages" +
+                     " its own REST-based tooling and must remain independently deployable.");
 
     @ArchTest
     public static final ArchRule connect_must_not_depend_on_shell =
         noClasses()
             .that().resideInAPackage("org.apache.kafka.connect..")
             .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.shell..")
-            .because("Inferred from package naming. The Kafka Connect framework must not import the" +
-                     " interactive admin shell. These are parallel API-layer modules with unrelated" +
-                     " responsibilities that must remain independently deployable.");
+            .because("Inferred from package naming. FUTURE-PROOFING ONLY: The Kafka Connect" +
+                     " framework must not import the interactive admin shell. These are parallel" +
+                     " API-layer modules with unrelated responsibilities.");
 
     @ArchTest
     public static final ArchRule tools_must_not_depend_on_streams =
         noClasses()
             .that().resideInAPackage("org.apache.kafka.tools..")
             .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.streams..")
-            .because("Inferred from package naming. Kafka CLI tools are broker-management utilities" +
-                     " that communicate via AdminClient or the protocol layer. They must not import" +
-                     " the Kafka Streams library, which is an application-level stream processing" +
-                     " framework unrelated to cluster tooling.");
+            .because("Inferred from package naming. Kafka CLI tools are broker-management" +
+                     " utilities that communicate via AdminClient or the protocol layer. They must" +
+                     " not import the Kafka Streams library, which is an application-level" +
+                     " stream processing framework unrelated to cluster tooling.");
+
+    // REGR-03: Restored from deletion. The original rule was incorrectly deleted
+    // entirely in Review #1 instead of being scoped. ConnectPluginPath and
+    // ManifestWorkspace are explicitly excluded as documented exceptions.
+    @ArchTest
+    public static final ArchRule tools_must_not_depend_on_connect_except_plugin_path =
+        noClasses()
+            .that().resideInAPackage("org.apache.kafka.tools..")
+            .and(DescribedPredicate.describe(
+                "are not part of the ConnectPluginPath CLI family",
+                (JavaClass clazz) ->
+                    !clazz.getName().startsWith("org.apache.kafka.tools.ConnectPluginPath")
+                 && !clazz.getName().startsWith("org.apache.kafka.tools.ManifestWorkspace")))
+            .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.connect..")
+            .because("Inferred from package naming. The connect-plugin-path CLI" +
+                     " (ConnectPluginPath, ManifestWorkspace) is the documented exception: its" +
+                     " sole purpose is to inspect Kafka Connect plugin classpaths. All other" +
+                     " tools must remain decoupled from the Connect runtime.");
 
     @ArchTest
     public static final ArchRule tools_must_not_depend_on_shell =
         noClasses()
             .that().resideInAPackage("org.apache.kafka.tools..")
             .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.shell..")
-            .because("Inferred from package naming. Command-line tools and the interactive shell are" +
-                     " parallel operator-facing modules. Tools must not import shell internals;");
+            .because("Inferred from package naming. FUTURE-PROOFING ONLY: Command-line tools and" +
+                     " the interactive shell are parallel operator-facing modules. Tools must not" +
+                     " import shell internals; this rule guards against future regressions.");
 
     @ArchTest
     public static final ArchRule shell_must_not_depend_on_streams =
@@ -361,8 +446,8 @@ public class ArchitectureEnforcementTest {
         noClasses()
             .that().resideInAPackage("org.apache.kafka.shell..")
             .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.connect..")
-            .because("Inferred from package naming. The Kafka shell operates on broker metadata and" +
-                     " cluster topology. Kafka Connect is a separate runtime for data-integration" +
+            .because("Inferred from package naming. The Kafka shell operates on broker metadata" +
+                     " and cluster topology. Kafka Connect is a separate runtime for data-integration" +
                      " connectors; importing Connect types into the shell would couple two unrelated" +
                      " operational subsystems.");
 
@@ -371,12 +456,11 @@ public class ArchitectureEnforcementTest {
         noClasses()
             .that().resideInAPackage("org.apache.kafka.shell..")
             .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.tools..")
-            .because("Inferred from package naming. The interactive shell and CLI tools are parallel" +
-                     " operator-facing modules. The shell must not import tool implementations;");
+            .because("Inferred from package naming. FUTURE-PROOFING ONLY: The interactive shell" +
+                     " and CLI tools are parallel operator-facing modules. The shell must not" +
+                     " import tool implementations; this rule guards against future regressions.");
 
-    // MAP-01: The admin client physically lives at org.apache.kafka.clients.admin,
-    // not in a separate org.apache.kafka.admin package (which is empty). Rules
-    // are therefore written against clients.admin rather than admin.
+    // MAP-01: The admin client physically lives at org.apache.kafka.clients.admin.
     @ArchTest
     public static final ArchRule clients_admin_must_not_depend_on_streams =
         noClasses()
@@ -394,35 +478,33 @@ public class ArchitectureEnforcementTest {
             .because("Inferred from package naming. The AdminClient must not pull in the Kafka" +
                      " Connect runtime, which is a separate independently-deployable framework.");
 
-    // TRANS-01: Prevent transitive bypass of streams/connect isolation through clients.
-    // Streams already depends on clients; a reverse clients -> streams cycle would
-    // make Streams a hard transitive dependency of tools and shell.
+    // TRANS-01: Anti-cycle guards — prevent transitive bypass of streams/connect
+    // isolation through the clients package.
     @ArchTest
     public static final ArchRule clients_must_not_depend_on_streams =
         noClasses()
             .that().resideInAPackage("org.apache.kafka.clients..")
             .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.streams..")
-            .because("Inferred from package naming. The clients package is the foundational" +
-                     " producer/consumer library; it must not import Kafka Streams, which depends" +
-                     " on clients. A reverse dependency would create a cycle and force Streams onto" +
-                     " every client user transitively.");
+            .because("Inferred from package naming. FUTURE-PROOFING ONLY: The clients package" +
+                     " is the foundational producer/consumer library; it must not import Kafka" +
+                     " Streams, which depends on clients. A reverse dependency would create a" +
+                     " cycle and force Streams onto every client user transitively.");
 
     @ArchTest
     public static final ArchRule clients_must_not_depend_on_connect =
         noClasses()
             .that().resideInAPackage("org.apache.kafka.clients..")
             .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.connect..")
-            .because("Inferred from package naming. The clients package must not import the Kafka" +
-                     " Connect framework. Connect depends on clients; a reverse dependency would" +
-                     " create a cycle and pull Connect infrastructure into every Kafka client.");
+            .because("Inferred from package naming. FUTURE-PROOFING ONLY: The clients package" +
+                     " must not import the Kafka Connect framework. Connect depends on clients;" +
+                     " a reverse dependency would create a cycle and pull Connect infrastructure" +
+                     " into every Kafka client.");
 
     // =========================================================================
     // FINE-GRAINED INTRA-LAYER RULES: SERVER LAYER
-    // The controller and network sub-modules serve distinct roles and must not
-    // cross-import each other or the broker runtime server classes.
-    // NOTE: coordinator_must_not_depend_on_controller is removed (VAC-01) because
-    // org.apache.kafka.coordinator.. contains no classes in the scanned classpath,
-    // causing ArchUnit to fail the rule with failOnEmptyShould.
+    // NOTE: coordinator_must_not_depend_on_controller is absent because
+    // org.apache.kafka.coordinator.. contains no classes in the scanned classpath
+    // (failOnEmptyShould would fail the rule with an empty subject set).
     // =========================================================================
 
     @ArchTest
@@ -445,7 +527,7 @@ public class ArchitectureEnforcementTest {
                      " internals. Doing so would make the network layer aware of high-level cluster" +
                      " management logic that should be opaque to it.");
 
-    // NAR-01: network -> server (broker lifecycle) also forbidden, not just controller/coordinator.
+    // NAR-01: network -> broker-runtime server classes also forbidden.
     @ArchTest
     public static final ArchRule network_must_not_depend_on_server_runtime =
         noClasses()
@@ -459,15 +541,15 @@ public class ArchitectureEnforcementTest {
             )
             .because("Inferred from package naming. The NIO network layer must remain agnostic of" +
                      " broker request handling, share-group logic, transaction management, KRaft" +
-                     " controller operations, and group coordinator state machines. Coupling the" +
-                     " network layer to any of these would prevent its reuse across broker roles.");
+                     " controller operations, and group coordinator state machines.");
 
     // =========================================================================
     // FINE-GRAINED INTRA-LAYER RULES: CONSENSUS LAYER
-    // The Raft engine is a general-purpose replicated log that must not import
-    // its consumers. Metadata must not import the image built on top of it.
-    // After MAP-02, server.common/util/fault are in Core and are therefore
-    // allowed targets for Raft, metadata, and image.
+    // NOTE (REGR-02): metadata_must_not_depend_on_image was inverted and has
+    // been removed. The KIP-500 direction is metadata -> image: metadata.publisher.*
+    // implements image.publisher.MetadataPublisher and receives image.MetadataImage
+    // in callbacks. image_must_not_depend_on_metadata_publisher_internals below
+    // encodes the correct constraint.
     // =========================================================================
 
     @ArchTest
@@ -477,8 +559,7 @@ public class ArchitectureEnforcementTest {
             .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.metadata..")
             .because("Inferred from package naming. The KRaft Raft engine replicates opaque records" +
                      " and must not be aware of the semantic content of those records (metadata" +
-                     " changes). Importing metadata types into Raft would destroy reusability and" +
-                     " create an upward dependency from the protocol engine to its consumers.");
+                     " changes). Importing metadata types into Raft would destroy reusability.");
 
     @ArchTest
     public static final ArchRule raft_must_not_depend_on_image =
@@ -487,9 +568,9 @@ public class ArchitectureEnforcementTest {
             .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.image..")
             .because("Inferred from package naming. The cluster metadata image is a point-in-time" +
                      " snapshot assembled from the Raft log. Raft must not import image types; the" +
-                     " image layer is a higher-level consumer of the log, not a Raft dependency.");
+                     " image layer is a higher-level consumer of the log.");
 
-    // NAR-02: Raft also must not depend on the Server-layer modules above it.
+    // NAR-02: Raft must not depend on the Server-layer modules above it.
     @ArchTest
     public static final ArchRule raft_must_not_depend_on_higher_layers =
         noClasses()
@@ -501,28 +582,33 @@ public class ArchitectureEnforcementTest {
                 "org.apache.kafka.server.share..",
                 "org.apache.kafka.server.transaction.."
             )
-            .because("Inferred from package naming. Raft is a general-purpose consensus log and must" +
-                     " not depend on broker request handling, KRaft controller logic, or coordinator" +
-                     " state machines. Raft may use server.common/util/fault shared utilities" +
-                     " (which are in Core) but must not import the broker runtime.");
+            .because("Inferred from package naming. Raft is a general-purpose consensus log and" +
+                     " must not depend on broker runtime classes, KRaft controller logic, or NIO" +
+                     " networking. Raft may use server.common/util/fault utilities (in Core).");
 
-    // NAR-02: metadata -> image upward dependency is also unguarded without this rule.
+    // REGR-02: This is the correct direction — image must not depend on metadata
+    // publisher implementation classes (publishers are consumers of image, not producers).
+    // The core image types may legitimately depend on metadata record types.
     @ArchTest
-    public static final ArchRule metadata_must_not_depend_on_image =
+    public static final ArchRule image_must_not_depend_on_metadata_publisher_internals =
         noClasses()
-            .that().resideInAPackage("org.apache.kafka.metadata..")
-            .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.image..")
-            .because("Inferred from package naming. The cluster image is built on top of metadata" +
-                     " records; metadata must not import image types, which would create an upward" +
-                     " circular dependency within the Consensus layer.");
+            .that().resideInAPackage("org.apache.kafka.image..")
+            .and().resideOutsideOfPackage("org.apache.kafka.image.publisher..")
+            .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.metadata.publisher..")
+            .because("Inferred from package naming. The image layer materialises metadata records" +
+                     " into a queryable snapshot; image core types (outside image.publisher) must" +
+                     " not depend on metadata.publisher implementation classes. Publishers are" +
+                     " consumers of the image, not producers of it.");
 
-    // MAP-02 / FP-02: renamed from metadata_must_not_depend_on_server. After splitting
-    // server.common/util/fault/authorizer into Core, metadata -> those sub-packages is
-    // a legitimate Consensus -> Core dependency. Only the broker runtime is forbidden.
+    // FP-NEW-01: Added resideOutsideOfPackage exclusion for metadata.authorizer.* which
+    // contains the controller-side ACL implementations (StandardAuthorizer, AclMutator,
+    // ClusterMetadataAuthorizer) that are deliberately wired into the controller's
+    // request handling pipeline via ControllerRequestContext.
     @ArchTest
     public static final ArchRule metadata_must_not_depend_on_server_runtime =
         noClasses()
             .that().resideInAPackage("org.apache.kafka.metadata..")
+            .and().resideOutsideOfPackage("org.apache.kafka.metadata.authorizer..")
             .should().dependOnClassesThat().resideInAnyPackage(
                 "org.apache.kafka.server",
                 "org.apache.kafka.server.share..",
@@ -532,10 +618,13 @@ public class ArchitectureEnforcementTest {
             )
             .because("Inferred from package naming. Metadata is a low-level Consensus-layer" +
                      " component; it may use server.common/util/fault shared utilities (in Core)" +
-                     " but must not depend on the broker request-handling runtime, KRaft controller" +
-                     " operations, or NIO networking.");
+                     " but must not depend on the broker request-handling runtime. Exception:" +
+                     " metadata.authorizer.* contains the controller-side ACL implementation" +
+                     " (StandardAuthorizer, AclMutator, ClusterMetadataAuthorizer) which is" +
+                     " deliberately wired into the controller's request handling pipeline via" +
+                     " ControllerRequestContext.");
 
-    // COV-02: image has no dedicated isolation rule in the initial generation.
+    // COV-02: image must not import broker runtime classes.
     @ArchTest
     public static final ArchRule image_must_not_depend_on_server_runtime =
         noClasses()
@@ -554,10 +643,9 @@ public class ArchitectureEnforcementTest {
 
     // =========================================================================
     // FINE-GRAINED INTRA-LAYER RULES: CORE LAYER ISOLATION
-    // Core packages are the foundation of the entire dependency graph.
     // After MAP-02, server.common/util/fault/authorizer/immutable/config are
-    // part of Core, so common -> those packages is allowed (Core -> Core).
-    // The rules below restrict Core from depending on higher layers only.
+    // part of Core, so common -> those sub-packages is Core -> Core and is
+    // no longer restricted.
     // =========================================================================
 
     // VAC-03: tiered.. removed (empty in scanned classpath).
@@ -570,10 +658,8 @@ public class ArchitectureEnforcementTest {
                 "org.apache.kafka.snapshot.."
             )
             .because("Inferred from package naming. The common package is the universal utility" +
-                     " foundation shared by every Kafka module. Importing storage or snapshot types" +
-                     " would propagate a persistence coupling to every consumer of common, making it" +
-                     " impossible to use common utilities in lightweight clients without dragging in" +
-                     " the full persistence infrastructure.");
+                     " foundation; importing storage or snapshot types would propagate a persistence" +
+                     " coupling to every Kafka module that depends on common.");
 
     @ArchTest
     public static final ArchRule common_must_not_depend_on_consensus =
@@ -584,14 +670,13 @@ public class ArchitectureEnforcementTest {
                 "org.apache.kafka.metadata..",
                 "org.apache.kafka.image.."
             )
-            .because("Inferred from package naming. The common package must be free of Consensus-layer" +
-                     " types. Importing Raft or metadata classes into common would force every client" +
-                     " and server module to transitively depend on the KRaft consensus engine.");
+            .because("Inferred from package naming. The common package must be free of" +
+                     " Consensus-layer types. Importing Raft or metadata classes into common" +
+                     " would force every client and server module to transitively depend on" +
+                     " the KRaft consensus engine.");
 
-    // MAP-02 / FP-02: renamed from common_must_not_depend_on_server_layer. After moving
-    // server.authorizer, server.common, server.util, etc. to Core, common ->
-    // those sub-packages is Core -> Core and is no longer forbidden. Only the
-    // actual broker runtime packages remain off-limits.
+    // MAP-02 / FP-02: targets only broker-runtime packages. server.authorizer,
+    // server.common, server.util, etc. are in Core and are therefore allowed targets.
     @ArchTest
     public static final ArchRule common_must_not_depend_on_server_runtime =
         noClasses()
@@ -603,15 +688,13 @@ public class ArchitectureEnforcementTest {
                 "org.apache.kafka.controller..",
                 "org.apache.kafka.network.."
             )
-            .because("Inferred from package naming. The common package supplies foundational types" +
-                     " (record schemas, serializers, error codes) to all modules. It may use the" +
-                     " public server.authorizer SPI and server.common/util utilities (all in Core)," +
+            .because("Inferred from package naming. The common package may use the public" +
+                     " server.authorizer SPI and server.common/util utilities (all in Core)," +
                      " but must not import the broker runtime, KRaft controller, or NIO networking.");
 
     // MAP-03: metadata.. removed from the target list. storage -> metadata.properties
-    // (MetaProperties) and storage -> metadata (ConfigRepository SAM) are legitimate
-    // downward uses of stable interfaces and identity utilities; they are also excluded
-    // from the layered rule via ignoreDependency above.
+    // and metadata.ConfigRepository are legitimate and excluded via ignoreDependency on
+    // the layered rule. Only raft and image are blocked here.
     @ArchTest
     public static final ArchRule storage_must_not_depend_on_consensus =
         noClasses()
@@ -620,14 +703,13 @@ public class ArchitectureEnforcementTest {
                 "org.apache.kafka.raft..",
                 "org.apache.kafka.image.."
             )
-            .because("Inferred from package naming. The storage layer manages physical log structure" +
-                     " and persistence. It must not import Raft consensus internals or the cluster" +
-                     " metadata image; those are higher-layer components. Storage may legitimately" +
+            .because("Inferred from package naming. The storage layer must not import Raft" +
+                     " consensus internals or the cluster metadata image. Storage may legitimately" +
                      " use metadata.properties (bootstrap identity) and the metadata.ConfigRepository" +
                      " SAM (dependency inversion), which are excluded from this rule.");
 
-    // MAP-02: server.. changed to only the runtime sub-packages. After moving
-    // server.common/util/fault/authorizer etc. to Core, storage -> those is fine.
+    // MAP-02: targets only broker-runtime packages. server.common/util/fault/etc. are
+    // in Core and are therefore allowed targets for the storage layer.
     @ArchTest
     public static final ArchRule storage_must_not_depend_on_server_layer =
         noClasses()
@@ -639,10 +721,10 @@ public class ArchitectureEnforcementTest {
                 "org.apache.kafka.controller..",
                 "org.apache.kafka.network.."
             )
-            .because("Inferred from package naming. The storage layer implements durable persistence" +
-                     " and must remain independent of the broker lifecycle, KRaft controller logic," +
-                     " and NIO networking. Storage may use server.common/util/fault shared utilities" +
-                     " (in Core) but must not import the broker request-handling runtime.");
+            .because("Inferred from package naming. The storage layer implements durable" +
+                     " persistence and must remain independent of the broker lifecycle, KRaft" +
+                     " controller logic, and NIO networking. Storage may use server.common/util/fault" +
+                     " shared utilities (in Core) but must not import the broker runtime.");
 
     // VAC-03: admin.. replaced by clients.. (admin client is in clients.admin).
     @ArchTest
@@ -659,6 +741,5 @@ public class ArchitectureEnforcementTest {
             .because("Inferred from package naming. The storage layer is a low-level persistence" +
                      " subsystem and must not import client or application-layer types. Importing" +
                      " producer/consumer clients, Connect, Streams, or CLI tools would invert the" +
-                     " dependency hierarchy and make the persistence foundation aware of the" +
-                     " application layers it serves.");
+                     " dependency hierarchy.");
 }
