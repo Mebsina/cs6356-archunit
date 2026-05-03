@@ -32,3 +32,7 @@ Fix: Added `GeneratedDtos` to `Support` access list. Mapped all 12 missing top-l
 9. Syntax Fix (Location Import)
 Findings: Missing import for `com.tngtech.archunit.core.importer.Location` in the custom `ExcludeBuildArtifacts` implementation introduced in Review #5.
 Fix: Added the required `Location` import to ensure compilation.
+
+10. Review #6 Fixes
+Findings: The positive constraint `streams_must_depend_on_consumer_for_fault_tolerance` was too broad, requiring every internal processor to depend on the consumer API and causing 190 false positives. The `metadata_must_keep_config_repository_spi` guardrail was accidentally removed in the previous iteration.
+Fix: Narrowed the Streams-Consumer dependency rule to target only the `StreamThread` class. Restored the `metadata_must_keep_config_repository_spi` guardrail rule to protect the simple-name string reference used in the layered architecture's `.ignoreDependency` clause.

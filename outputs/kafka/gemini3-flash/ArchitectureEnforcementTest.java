@@ -109,9 +109,16 @@ public class ArchitectureEnforcementTest {
 
     @ArchTest
     public static final ArchRule streams_must_depend_on_consumer_for_fault_tolerance = classes()
-        .that().resideInAPackage("org.apache.kafka.streams.processor.internals..")
+        .that().haveFullyQualifiedName("org.apache.kafka.streams.processor.internals.StreamThread")
         .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.clients.consumer..")
         .because("7_apache_kafka.pdf: 'Streams leverages the consumer client for fault tolerance.'");
+
+    @ArchTest
+    public static final ArchRule metadata_must_keep_config_repository_spi = classes()
+        .that().haveSimpleName("ConfigRepository")
+        .and().resideInAPackage("org.apache.kafka.metadata..")
+        .should().beInterfaces()
+        .because("Layered rule uses simpleNameEndingWith to carve out this SPI. Ensure it exists.");
 
     @ArchTest
     public static final ArchRule streams_should_not_depend_on_connect = noClasses()
