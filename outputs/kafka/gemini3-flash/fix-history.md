@@ -20,3 +20,7 @@ Fix: Mapped generated DTOs to a new `GeneratedDtos` layer and moved `metadata.pr
 6. Syntax Fix
 Findings: Invalid ArchUnit DSL syntax in Review #3 patch. Attempted to call `.and()` on `ClassesShouldConjunction` for target class predicates, which is not supported in the fluid API.
 Fix: Corrected syntax by using `dependOnClassesThat(predicate)` with combined `DescribedPredicate` objects. Added missing static imports for `resideInAPackage`, `simpleNameEndingWith`, and `not`.
+
+7. Review #4 Fixes
+Findings: Overlapping `definedBy` globs in Review #3 caused classes like `MetaProperties` and `ProducerSnapshot` to belong to multiple layers, triggering spurious Server-access violations. The explicit `ConfigRepository` SPI rule also missed the `metadata.properties..` carve-out, causing failures.
+Fix: Switched to predicate-based layer definitions (`SERVER_LAYER_PREDICATE`) to explicitly subtract carve-out sub-packages from the Server layer. Propagated the `metadata.properties..` carve-out to the `storage_may_reference_metadata_only_via_spi_or_properties` rule. Added a `metadata_must_keep_config_repository_spi` guardrail rule.
