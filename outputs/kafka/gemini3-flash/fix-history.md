@@ -16,3 +16,7 @@ Fix: Promoted `server.log..` and unmapped `server.*` orchestrators to Server lay
 5. Review #3 Fixes
 Findings: Residual 33 violations identified as genuine architectural debt or mis-located value types. `ProducerSnapshot` generated DTOs mis-mapped as Server. `LogManager` dependency on `metadata.ConfigRepository` (SPI) and `metadata.properties..` (value types) flagged. `security.CredentialProvider` dependency on `clients.admin.ScramMechanism` (Infrastructure->Client) identified.
 Fix: Mapped generated DTOs to a new `GeneratedDtos` layer and moved `metadata.properties..` to Support. Added an explicit allow-rule for the `ConfigRepository` SPI seam. Symmetrically extended Client layer access to Infrastructure to document the security-admin dependency. Refined metadata-controller carve-out to the specific `ControllerRequestContext` type.
+
+6. Syntax Fix
+Findings: Invalid ArchUnit DSL syntax in Review #3 patch. Attempted to call `.and()` on `ClassesShouldConjunction` for target class predicates, which is not supported in the fluid API.
+Fix: Corrected syntax by using `dependOnClassesThat(predicate)` with combined `DescribedPredicate` objects. Added missing static imports for `resideInAPackage`, `simpleNameEndingWith`, and `not`.

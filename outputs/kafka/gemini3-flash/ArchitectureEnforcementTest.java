@@ -5,6 +5,9 @@ import com.tngtech.archunit.lang.ArchRule;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
+import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAPackage;
+import static com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith;
+import static com.tngtech.archunit.base.DescribedPredicate.not;
 
 /**
  * Kafka Architecture Enforcement Test
@@ -141,9 +144,8 @@ public class ArchitectureEnforcementTest {
     @ArchTest
     public static final ArchRule metadata_should_not_depend_on_controller = noClasses()
         .that().resideInAPackage("org.apache.kafka.metadata..")
-        .should().dependOnClassesThat()
-            .resideInAPackage("org.apache.kafka.controller..")
-            .and().haveSimpleNameNotEndingWith("ControllerRequestContext")
+        .should().dependOnClassesThat(resideInAPackage("org.apache.kafka.controller..")
+            .and(not(simpleNameEndingWith("ControllerRequestContext"))))
         .because("metadata is the controller's domain model. The ONLY allowed back-edge is metadata.authorizer.{ClusterMetadataAuthorizer, AclMutator} forwarding ACL mutations through controller.ControllerRequestContext.");
 
     @ArchTest
@@ -173,9 +175,8 @@ public class ArchitectureEnforcementTest {
     @ArchTest
     public static final ArchRule storage_may_reference_metadata_config_repository_only = noClasses()
         .that().resideInAPackage("org.apache.kafka.storage..")
-        .should().dependOnClassesThat()
-            .resideInAPackage("org.apache.kafka.metadata..")
-            .and().haveSimpleNameNotEndingWith("ConfigRepository")
+        .should().dependOnClassesThat(resideInAPackage("org.apache.kafka.metadata..")
+            .and(not(simpleNameEndingWith("ConfigRepository"))))
         .because("LogManager is allowed to depend on metadata.ConfigRepository (SPI). Any other storage->metadata reference is a regression.");
 
     @ArchTest
