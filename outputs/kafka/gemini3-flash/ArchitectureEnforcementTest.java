@@ -208,6 +208,8 @@ public class ArchitectureEnforcementTest {
     public static final ArchRule core_client_should_not_depend_on_admin = noClasses()
         .that().resideInAPackage("org.apache.kafka.clients..")
         .and().resideOutsideOfPackage("org.apache.kafka.clients.admin..")
-        .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.clients.admin..")
+        .should().dependOnClassesThat().resideInAnyPackage(
+            "org.apache.kafka.clients.admin..",
+            "org.apache.kafka.admin..")
         .because("Producer/consumer paths must not pull in admin-only types.");
 }

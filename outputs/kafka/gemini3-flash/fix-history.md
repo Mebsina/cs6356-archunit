@@ -52,3 +52,7 @@ Fix: Eliminated the `BROKER_INTERNAL_PACKAGES` array and the two redundant `_sho
 14. Review #10 Fixes
 Findings: Logic defect (copy-paste error) in the `raft_should_not_depend_on_image` rule. The rule was incorrectly targeting the `controller..` package instead of `image..`, leaving a critical intra-layer boundary unenforced.
 Fix: Corrected the package target in the `raft_should_not_depend_on_image` rule to `org.apache.kafka.image..`, restoring the intended isolation between consensus and metadata image modules.
+
+15. Review #11 Fixes
+Findings: Semantic gap in the Client layer's internal isolation. The core client isolation rule successfully blocked dependencies on the internal `clients.admin..` sub-package but failed to account for the top-level `admin..` package, which also contains admin-specific APIs.
+Fix: Extended the `core_client_should_not_depend_on_admin` rule to block both the `org.apache.kafka.clients.admin..` and the top-level `org.apache.kafka.admin..` packages, ensuring the producer/consumer path remains isolated from all admin modules.
