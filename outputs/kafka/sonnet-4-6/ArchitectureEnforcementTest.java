@@ -126,7 +126,10 @@ import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.core.importer.Location;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
+import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
+import com.tngtech.archunit.lang.ConditionEvents;
+import com.tngtech.archunit.lang.SimpleConditionEvent;
 
 import java.util.Arrays;
 import java.util.stream.Stream;
@@ -164,6 +167,8 @@ public class ArchitectureEnforcementTest {
 
     // REGR-01: config, deferred, logger, queue, timeline restored — they were
     // incorrectly declared empty in Review #1. Each contains real production classes.
+    // REGR-04: six additional server.* sub-packages restored — they contain ~100
+    // production classes that were orphaned because the enumeration was incomplete.
     private static final String[] CORE_PACKAGES = {
         "org.apache.kafka.common..",
         "org.apache.kafka.security..",
@@ -181,7 +186,14 @@ public class ArchitectureEnforcementTest {
         "org.apache.kafka.server.config..",
         "org.apache.kafka.server.record..",
         "org.apache.kafka.server.storage.log..",
-        "org.apache.kafka.server.log.remote.storage.."
+        "org.apache.kafka.server.log.remote.storage..",
+        // REGR-04: shared library / SPI sub-packages under server.*
+        "org.apache.kafka.server.mutable..",        // BoundedList data structure
+        "org.apache.kafka.server.network..",        // BrokerEndPoint, EndpointReadyFutures SPIs
+        "org.apache.kafka.server.policy..",         // AlterConfigPolicy, CreateTopicPolicy SPIs
+        "org.apache.kafka.server.purgatory..",      // DelayedOperation framework
+        "org.apache.kafka.server.telemetry..",      // KIP-714 ClientTelemetry SPIs
+        "org.apache.kafka.server.log.remote.."      // TopicPartitionLog shared abstraction
     };
 
     private static final String[] STORAGE_PACKAGES = {
@@ -195,13 +207,24 @@ public class ArchitectureEnforcementTest {
         "org.apache.kafka.image.."
     };
 
+    // REGR-04: six broker-runtime server.* sub-packages added.
+    // NOTE: server.log.remote.metadata.storage.generated is a schema-derived DTO
+    // sub-package used by the storage layer; storage -> .generated is excluded via
+    // ignoreDependency (MOD-08).
     private static final String[] SERVER_PACKAGES = {
         "org.apache.kafka.server",
         "org.apache.kafka.server.share..",
         "org.apache.kafka.server.transaction..",
         "org.apache.kafka.server.log.remote.metadata.storage..",
         "org.apache.kafka.controller..",
-        "org.apache.kafka.network.."
+        "org.apache.kafka.network..",
+        // REGR-04: broker runtime server.* sub-packages
+        "org.apache.kafka.server.controller..",     // ControllerRegistrationManager, broker-side wiring
+        "org.apache.kafka.server.logger..",         // Log4jCoreController runtime
+        "org.apache.kafka.server.partition..",      // AlterPartitionManager, ReplicaState mutators
+        "org.apache.kafka.server.replica..",        // Replica, ReplicaState
+        "org.apache.kafka.server.quota..",          // ClientQuotaManager runtime
+        "org.apache.kafka.server.log.remote.quota.." // RLMQuotaManager, RLMQuotaMetrics
     };
 
     private static final String[] API_PACKAGES = {
@@ -223,19 +246,30 @@ public class ArchitectureEnforcementTest {
     // LAYERED ARCHITECTURE RULE
     // Enforces the five-layer hierarchy: Core < Storage < Consensus < Server < API.
     //
-    // ignoreDependency clauses address known legitimate cross-layer patterns
-    // (MOD-01, MOD-02, MAP-03) that are intrinsic to Kafka's design and cannot
-    // be reconciled with a strict linear layer model:
+    // ignoreDependency clauses address known legitimate cross-layer patterns that
+    // are intrinsic to Kafka's KIP-driven design and cannot be reconciled with a
+    // strict linear layer model:
     //
     //   MAP-03: storage -> metadata.properties (bootstrap identity helper) and
     //           storage -> metadata.ConfigRepository (SAM / dependency inversion)
-    //   MOD-01: server.config -> metadata (SPI: server defines interface, metadata implements it)
+    //   MOD-01: server.config -> metadata (SPI inversion)
     //           server.log.remote.storage -> storage (SPI inversion)
-    //           server -> clients (broker initiates outbound RPCs via KafkaClient/NetworkClient)
-    //           raft -> clients (KafkaNetworkChannel uses KafkaClient for inter-broker comms)
-    //           snapshot -> raft (SnapshotReader's iterator API exposes raft.Batch<T>)
-    //   MOD-02: common, controller, image -> clients.admin (ScramMechanism, AlterConfigOp,
-    //           ConfigEntry$ConfigSource, FeatureUpdate$UpgradeType used as shared DTO types)
+    //           server -> clients (broker outbound RPC via KafkaClient/NetworkClient)
+    //           raft -> clients (KafkaNetworkChannel inter-broker comms)
+    //           snapshot -> raft (SnapshotReader iterator API exposes raft.Batch<T>)
+    //   MOD-02: controller, image -> clients.admin (shared DTO enums)
+    //   MOD-03: metadata -> clients.admin (KafkaConfigSchema, ScramCredentialData use
+    //           ConfigEntry, ConfigSource, ScramMechanism as wire-format primitives)
+    //   MOD-04: security -> clients.admin (CredentialProvider uses ScramMechanism)
+    //   MOD-05: server.config -> storage (AbstractKafkaConfig aggregates LogConfig,
+    //           CleanerConfig, ProducerStateManagerConfig ConfigDef instances)
+    //   MOD-06: server.metrics -> image/metadata/controller (metrics observe runtime state)
+    //   MOD-07: server.util -> metadata (NetworkPartitionMetadataClient uses MetadataCache)
+    //   MOD-08: storage -> server.log.remote.metadata.storage.generated (schema-derived DTOs)
+    //   MOD-09: common -> clients (MessageFormatter, ApiVersionsResponse, ShareFetchRequest,
+    //           SaslClientAuthenticator share types with clients; subsumes MOD-02 common clause)
+    //   MOD-10: server.log.remote.storage -> server.log.remote.metadata.storage (SPI factory)
+    //   FP-AUTH-01: metadata.authorizer -> controller (controller-side ACL implementations)
     // =========================================================================
 
     @ArchTest
@@ -289,17 +323,63 @@ public class ArchitectureEnforcementTest {
             .ignoreDependency(
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.snapshot.."),
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.raft.."))
-            // MOD-02: clients.admin DTOs (ScramMechanism, AlterConfigOp$OpType, etc.) are used
-            // as wire-format primitives by common.requests, controller, and image serialization code
-            .ignoreDependency(
-                JavaClass.Predicates.resideInAPackage("org.apache.kafka.common.."),
-                JavaClass.Predicates.resideInAPackage("org.apache.kafka.clients.admin.."))
+            // MOD-02: clients.admin DTOs used as wire-format primitives by controller and image
             .ignoreDependency(
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.controller.."),
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.clients.admin.."))
             .ignoreDependency(
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.image.."),
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.clients.admin.."))
+            // MOD-03: metadata.KafkaConfigSchema and metadata.ScramCredentialData use
+            // clients.admin.{ConfigEntry,ScramMechanism} enums as wire-format primitives
+            .ignoreDependency(
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.metadata.."),
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.clients.admin.."))
+            // MOD-04: security.CredentialProvider uses clients.admin.ScramMechanism (shared DTO)
+            .ignoreDependency(
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.security.."),
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.clients.admin.."))
+            // MOD-05: server.config aggregates ConfigDef from storage.internals.log
+            // (LogConfig, CleanerConfig, ProducerStateManagerConfig) for dynamic broker config
+            .ignoreDependency(
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.server.config.."),
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.storage.."))
+            // MOD-06: server.metrics observes higher-layer state for reporting
+            // (BrokerServerMetrics reports MetadataProvenance; NodeMetrics reports QuorumFeatures)
+            .ignoreDependency(
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.server.metrics.."),
+                DescribedPredicate.describe(
+                    "is image / metadata / controller (metrics observation targets)",
+                    (JavaClass c) -> c.getPackageName().startsWith("org.apache.kafka.image")
+                                 || c.getPackageName().startsWith("org.apache.kafka.metadata")
+                                 || c.getPackageName().startsWith("org.apache.kafka.controller")))
+            // MOD-07: server.util.NetworkPartitionMetadataClient uses metadata.MetadataCache SAM
+            .ignoreDependency(
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.server.util.."),
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.metadata.."))
+            // MOD-08 (narrow): storage uses schema-derived generated DTOs from the tiered-metadata
+            // server module (ProducerSnapshot, ProducerEntry) for on-disk snapshot format
+            .ignoreDependency(
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.storage.."),
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.server.log.remote.metadata.storage.generated.."))
+            // MOD-09: common.{MessageFormatter,requests.ApiVersionsResponse,requests.ShareFetchRequest,
+            // security.authenticator.SaslClientAuthenticator} share types with clients
+            // (ConsumerRecord, NodeApiVersions, ShareAcquireMode, NetworkClient.parseResponse).
+            // This is broader than MOD-02's common->clients.admin and subsumes it.
+            .ignoreDependency(
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.common.."),
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.clients.."))
+            // MOD-10: RemoteLogManager (SPI side, Core) instantiates the default
+            // ClassLoaderAwareRemoteLogMetadataManager (runtime side, Server) — standard factory pattern
+            .ignoreDependency(
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.server.log.remote.storage.."),
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.server.log.remote.metadata.storage.."))
+            // FP-AUTH-01: metadata.authorizer.{AclMutator,ClusterMetadataAuthorizer} are
+            // controller-side ACL implementations deliberately wired into the controller pipeline.
+            // Mirror of the FP-NEW-01 exception on metadata_must_not_depend_on_server_runtime.
+            .ignoreDependency(
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.metadata.authorizer.."),
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.controller.."))
 
             .because("Inferred from package naming conventions (not explicitly stated in the" +
                      " supplied Kafka Streams Architecture PDF). A five-layer hierarchy is assumed:" +
@@ -308,11 +388,12 @@ public class ArchitectureEnforcementTest {
                      " against KIP-500 / KIP-405 / design.html before treating this as authoritative.");
 
     // =========================================================================
-    // LAYER COVERAGE GUARD (LAY-01)
-    // Ensures that every scanned production class belongs to at least one
-    // defined layer. Uses ALL_LAYER_PACKAGES (derived from the per-layer
-    // constants above) so this guard and the layeredArchitecture() definition
-    // stay in sync (LAY-NEW-01).
+    // LAYER COVERAGE GUARD (LAY-01 / LAY-NEW-03)
+    // Ensures that every scanned production class belongs to at least one defined
+    // layer. Uses ALL_LAYER_PACKAGES (derived from the per-layer constants above)
+    // so this guard and the layeredArchitecture() definition stay in sync (LAY-NEW-01).
+    // Uses ArchCondition rather than resideInAnyPackage() so that each violation
+    // prints one short diagnostic sentence instead of the full package list (LAY-NEW-03).
     // =========================================================================
 
     @ArchTest
@@ -324,7 +405,24 @@ public class ArchitectureEnforcementTest {
                 "org.apache.kafka.jmh..",
                 "org.apache.kafka.trogdor.."
             )
-            .should().resideInAnyPackage(ALL_LAYER_PACKAGES)
+            .should(new ArchCondition<JavaClass>(
+                "reside in one of the " + ALL_LAYER_PACKAGES.length + " enumerated layer packages") {
+                @Override
+                public void check(JavaClass item, ConditionEvents events) {
+                    String pkg = item.getPackageName();
+                    boolean inLayer = Arrays.stream(ALL_LAYER_PACKAGES).anyMatch(p ->
+                        p.endsWith("..")
+                            ? pkg.equals(p.substring(0, p.length() - 2))
+                              || pkg.startsWith(p.substring(0, p.length() - 1))
+                            : pkg.equals(p));
+                    if (!inLayer) {
+                        events.add(SimpleConditionEvent.violated(item,
+                            "Class " + item.getName() + " in package [" + pkg + "] is not" +
+                            " assigned to any layer. Add the package to the appropriate" +
+                            " CORE_PACKAGES / SERVER_PACKAGES / etc. constant."));
+                    }
+                }
+            })
             .because("Inferred from package naming. New top-level packages must be explicitly" +
                      " assigned to a layer; otherwise consideringOnlyDependenciesInLayers() will" +
                      " silently exempt their classes from all dependency checks.");

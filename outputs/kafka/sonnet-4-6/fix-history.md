@@ -83,3 +83,23 @@ Fix:
 - LAY-NEW-01: Extracted per-layer package constant arrays (CORE_PACKAGES, STORAGE_PACKAGES, CONSENSUS_PACKAGES, SERVER_PACKAGES, API_PACKAGES) and ALL_LAYER_PACKAGES (derived via Stream.flatMap). Used CORE_PACKAGES etc. in layeredArchitecture().layer().definedBy() and ALL_LAYER_PACKAGES in every_production_class_must_be_in_a_layer.should().resideInAnyPackage() so both stay in sync.
 - LAY-NEW-02: Replaced bare resideInAPackage("org.apache.kafka.metadata") with a DescribedPredicate that matches only top-level metadata classes; added explicit comment explaining the intentional bare-package constraint.
 - COV-NEW-01/TRANS-NEW-01: Updated all future-proofing because() clauses with "FUTURE-PROOFING ONLY:" prefix to clarify the rules guard against future regressions rather than enforcing current-state invariants.
+
+---
+
+## 5. Fix review findings (Review #3 by opus-4-7)
+
+Review #3
+Findings: 12 issues across 2 failing tests (209 total violations). (1) REGR-04 (CRITICAL) — 12 server.* sub-packages (~100 production classes) were absent from CORE_PACKAGES and SERVER_PACKAGES because the LAY-NEW-01 refactor copied the same incomplete enumeration. Classes in server.mutable, server.network, server.policy, server.purgatory, server.telemetry, server.log.remote, server.controller, server.logger, server.partition, server.replica, server.quota, server.log.remote.quota were orphaned and silently exempt from the layered rule. (2) MOD-03 (HIGH) — metadata->clients.admin missed; metadata.KafkaConfigSchema and metadata.ScramCredentialData use ConfigEntry and ScramMechanism as wire-format primitives (~25 violations). (3) MOD-04 (HIGH) — security->clients.admin missed; security.CredentialProvider uses ScramMechanism (~4 violations). (4) MOD-05 (HIGH) — server.config->storage missed; AbstractKafkaConfig aggregates ConfigDef from storage.internals.log (~20 violations). (5) MOD-06 (HIGH) — server.metrics->image/metadata/controller; BrokerServerMetrics and NodeMetrics observe higher-layer runtime state (~7 violations). (6) MOD-07 (HIGH) — server.util->metadata; NetworkPartitionMetadataClient depends on MetadataCache SAM (~3 violations). (7) MOD-08 (HIGH) — storage->server.log.remote.metadata.storage.generated; ProducerStateManager uses generated schema DTOs for on-disk snapshot format (~22 violations). (8) MOD-09 (HIGH) — common->clients (non-admin); MessageFormatter, ApiVersionsResponse, ShareFetchRequest, SaslClientAuthenticator share types with clients (~7 violations). (9) FP-AUTH-01 (MEDIUM) — metadata.authorizer->controller still fires on the layered rule even after FP-NEW-01 added the exclusion to metadata_must_not_depend_on_server_runtime (~4 violations). (10) MOD-10 (MEDIUM) — server.log.remote.storage->server.log.remote.metadata.storage; RemoteLogManager SPI instantiates default ClassLoaderAwareRemoteLogMetadataManager (~1 violation). (11) LAY-NEW-03 (MEDIUM) — every_production_class_must_be_in_a_layer prints 100 near-identical multi-line paragraphs making CI output unreadable. (12) REA-NEW-02 (LOW) — minor inconsistency in because() clause voice; skipped (not a correctness issue).
+Fix:
+- REGR-04: Added server.mutable.., server.network.., server.policy.., server.purgatory.., server.telemetry.., server.log.remote.. to CORE_PACKAGES; added server.controller.., server.logger.., server.partition.., server.replica.., server.quota.., server.log.remote.quota.. to SERVER_PACKAGES.
+- MOD-03: Added ignoreDependency(metadata.. -> clients.admin..).
+- MOD-04: Added ignoreDependency(security.. -> clients.admin..).
+- MOD-05: Added ignoreDependency(server.config.. -> storage..).
+- MOD-06: Added ignoreDependency(server.metrics.. -> image/metadata/controller) using DescribedPredicate on the target.
+- MOD-07: Added ignoreDependency(server.util.. -> metadata..).
+- MOD-08: Added ignoreDependency(storage.. -> server.log.remote.metadata.storage.generated..) using narrow form targeting only the schema-derived .generated sub-package.
+- MOD-09: Added ignoreDependency(common.. -> clients..) covering all clients sub-packages; removed the now-redundant MOD-02 clause common..->clients.admin.. (subsumed).
+- MOD-10: Added ignoreDependency(server.log.remote.storage.. -> server.log.remote.metadata.storage..).
+- FP-AUTH-01: Added ignoreDependency(metadata.authorizer.. -> controller..) to mirror the FP-NEW-01 exception already present on metadata_must_not_depend_on_server_runtime.
+- LAY-NEW-03: Replaced .should().resideInAnyPackage(ALL_LAYER_PACKAGES) with a custom ArchCondition<JavaClass> that emits one short sentence per violation instead of the full package list, directing the reader to add the package to the appropriate XXX_PACKAGES constant.
+- Added ArchCondition, ConditionEvents, SimpleConditionEvent imports.
