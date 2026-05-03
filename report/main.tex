@@ -172,7 +172,7 @@
 \begin{abstract}
 \hspace*{\parindent}Architectural drift occurs when an implementation gradually diverges from its intended design constraints. Prior work has shown that LLMs and static analysis can help recover or detect architectural structure, but recovery alone does not prevent future violations. This project evaluates a hybrid pipeline that translates architecture documentation into executable enforcement artifacts: ArchUnit suites for Java repositories and arch-go configurations for Go repositories. The pipeline uses LLMs to generate and review candidate rules, while deterministic build and enforcement tools provide the final pass/fail judgment.
 
-We evaluate the approach on Spring Framework,\linebreak Apache ZooKeeper, and HashiCorp Consul using two models, \linebreak \texttt{claude-sonnet-4-6} and \texttt{gemini-3-flash} for the generation phase, paired with a reviewer using \texttt{claude-opus-4-7}. All six model-repository combinations eventually reached executable suites with 0 baseline violations, but only after compile fixes, schema fixes, mapping corrections, and reviewer-guided triage. \texttt{claude-sonnet-4-6} required fewer total iterations and produced stronger ZooKeeper and Consul suites, while \texttt{gemini-3-flash} produced the stronger Spring Framework suite. Pull request evaluation showed suite-dependent drift detection, including a ZooKeeper pull request that failed under one generated suite but passed under the other, and \due{Consul pull request drift result}. The results suggest that LLMs can generate useful architectural enforcement rules, but reliable drift prevention requires deterministic tooling and repository-aware engineer oversight.
+We evaluate the approach on Spring Framework,\linebreak Apache ZooKeeper, HashiCorp Consul, and Apache Kafka using two models, \linebreak \texttt{claude-sonnet-4-6} and \texttt{gemini-3-flash} for the generation phase, paired with a reviewer using \texttt{claude-opus-4-7}. Seven of the eight model-repository combinations have been completed and all reached executable suites with 0 baseline violations, but only after compile fixes, schema fixes, mapping corrections, and reviewer-guided triage; the eighth combination (\texttt{gemini-3-flash} on Apache Kafka) is a \due{Kafka gemini-3-flash run} follow-up. \texttt{claude-sonnet-4-6} required fewer total iterations and produced stronger ZooKeeper, Consul, and Kafka suites (the Kafka comparison is one-sided pending the \due{Kafka gemini-3-flash run}), while \texttt{gemini-3-flash} produced the stronger Spring Framework suite. Pull request evaluation showed suite-dependent drift detection, including a ZooKeeper pull request that failed under one generated suite but passed under the other, \due{Consul pull request drift result}, and \due{Kafka pull request drift result}. The results suggest that LLMs can generate useful architectural enforcement rules, but reliable drift prevention requires deterministic tooling and repository-aware engineer oversight.
 \end{abstract}
 
 %%
@@ -418,6 +418,7 @@ To demonstrate that ground truth architecture documentation can be translated in
     \begin{itemize}
         \item Spring Framework
         \item Apache ZooKeeper
+        \item Apache Kafka
     \end{itemize}
     \item Go repositories
     \begin{itemize}
@@ -428,10 +429,10 @@ To demonstrate that ground truth architecture documentation can be translated in
 
 \subsubsection{Data statistics}
 \begin{itemize}
-    \item Repositories: Three repositories were evaluated: two Java repositories, Spring Framework and Apache ZooKeeper, and one Go repository, HashiCorp Consul.
-    \item Models: Two generation models were evaluated for each repository, \texttt{claude-sonnet-4-6} and \texttt{gemini-3-flash}, producing six model-repository combinations.
-    \item Rule artifacts: The study produced six executable enforcement suites: four Java ArchUnit/Maven suites and two Go arch-go/Make suites.
-    \item Pull requests: Six pull requests were evaluated in the completed PR analysis: three Spring Framework pull requests and three Apache ZooKeeper pull requests. HashiCorp Consul PR evaluation is recorded as \due{Consul PR count and identifiers}.
+    \item Repositories: Four repositories were evaluated: three Java repositories, Spring Framework, Apache ZooKeeper, and Apache Kafka, and one Go repository, HashiCorp Consul.
+    \item Models: Two generation models were evaluated for each repository, \texttt{claude-sonnet-4-6} and \texttt{gemini-3-flash}, producing eight model-repository combinations of which seven are completed; the \due{Kafka $\times$ \texttt{gemini-3-flash} combination} is pending.
+    \item Rule artifacts: The study produced seven completed executable enforcement suites: five Java ArchUnit/Maven suites and two Go arch-go/Make suites; the \due{eighth Java suite for Kafka $\times$ \texttt{gemini-3-flash}} is pending.
+    \item Pull requests: Six pull requests were evaluated in the completed PR analysis: three Spring Framework pull requests and three Apache ZooKeeper pull requests. HashiCorp Consul PR evaluation is recorded as \due{Consul PR count and identifiers}, and Apache Kafka PR evaluation is recorded as \due{Kafka PR count and identifiers}.
 \end{itemize}
 
 \subsubsection{Metrics}
@@ -539,6 +540,36 @@ The results are organized by repository.
     \end{itemize}
 \end{itemize}
 
+\paragraph{Apache Kafka.}
+\begin{itemize}
+    \item Execution: The \texttt{claude-sonnet-4-6} ArchUnit suite compiled and ran under the Maven harness; the \texttt{gemini-3-flash} run is \due{Kafka gemini-3-flash execution outcome}.
+    \begin{itemize}
+        \item \texttt{claude-sonnet-4-6}: compiled initially; one static-final layer-array initialization-order error was fixed in round 1, and the Round-6 narrowing patch produced one Java generics inference compile error in round 7 that was fixed in round 8.
+        \item \texttt{gemini-3-flash}: \due{Kafka gemini-3-flash compile outcome}.
+    \end{itemize}
+    \item Baseline: The \texttt{claude-sonnet-4-6} suite reached 0 architectural violations and 0 remaining mapping errors.
+    \begin{itemize}
+        \item \texttt{claude-sonnet-4-6}: 33 of 33 ArchUnit rules passing at convergence with 22 documented \texttt{ignoreDependency} carve-outs.
+        \item \texttt{gemini-3-flash}: \due{Kafka gemini-3-flash baseline outcome}.
+    \end{itemize}
+    \item Review: The reviewer model identified missing or incorrect constraints in the completed run.
+    \begin{itemize}
+        \item \texttt{claude-sonnet-4-6}: 18 initial issues, with 11, 12, 6, 2, 6, 4, and 4 issues raised in the seven subsequent rounds.
+        \item \texttt{gemini-3-flash}: \due{Kafka gemini-3-flash review issue counts}.
+    \end{itemize}
+    \item Effort: Table~\ref{tab:convergence-kafka} reports violations and issue counts by round.
+    \begin{itemize}
+        \item \texttt{claude-sonnet-4-6}: converged in 8 total iterations.
+        \item \texttt{gemini-3-flash}: \due{Kafka gemini-3-flash iteration count}.
+    \end{itemize}
+    \item Outcome: \texttt{claude-sonnet-4-6} produced a load-bearing suite that survived an adversarial wildcard-narrowing round; the head-to-head verdict against \texttt{gemini-3-flash} is \due{Kafka model comparison verdict}.
+    \begin{itemize}
+        \item \texttt{claude-sonnet-4-6}: converged to a green suite at round 6 with 2 wildcard \texttt{ignoreDependency} carve-outs that the reviewer flagged as silently masking drift; the Round-6 narrowing patch surfaced 79 previously-hidden violations across three architectural patterns (KIP-405 tiered-metadata storage as a Kafka client, KIP-932 share-group consumer enums, and one missing broker-outbound-RPC type), each of which was documented as a narrow carve-out in round 7 to return the suite to green at round 8 with the precision improvements intact.
+        \item \texttt{gemini-3-flash}: \due{Kafka gemini-3-flash outcome}.
+    \end{itemize}
+    \item Documentation caveat: The supplied architecture document for Apache Kafka describes the Kafka Streams runtime only and contains no cross-package prohibitions for \texttt{org.apache.kafka.*}; consequently all 33 rules in the \texttt{claude-sonnet-4-6} suite are inferences from package naming, and every \texttt{because(...)} clause is prefixed with the disclaimer ``Inferred from package naming.'' This asymmetry is recorded explicitly in the suite's final-thoughts calibration and is the strongest illustration of the construct-validity threat discussed below.
+\end{itemize}
+
 \begin{table}[t]
     \centering
     \small
@@ -630,14 +661,37 @@ The results are organized by repository.
 \begin{table}[t]
     \centering
     \small
+    \caption{Apache Kafka: iterations until convergence.}
+    \label{tab:convergence-kafka}
+    \begin{tabular}{@{}p{0.25\columnwidth}C{0.25\columnwidth}p{0.20\columnwidth}C{0.15\columnwidth}@{}}
+        \toprule
+        \textbf{Model} & \textbf{Round} & \textbf{Violations} & \textbf{Issues} \\
+        \midrule
+        \texttt{claude-sonnet-4-6} & 1 & 2,213 & 18 \\
+                                                & 2 & 1,071 & 11 \\
+                                                & 3 & 209 & 12 \\
+                                                & 4 & 86 & 6 \\
+                                                & 5 & 14 & 2 \\
+                                                & 6 & 0 & 6 \\
+                                                & 7 & 79 & 4 \\
+                                                & \textbf{8} & \texttt{\textbf{PASS}} & --- \\
+        \cmidrule{1-4}
+        \texttt{gemini-3-flash} & --- & \due{Kafka gemini-3-flash trajectory} & --- \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\begin{table}[t]
+    \centering
+    \small
     \caption{Total iterations until convergence.}
     \label{tab:convergence-total}
     \begin{tabular}{@{}p{0.35\columnwidth}C{0.35\columnwidth}@{}}
         \toprule
         \textbf{Model} & \textbf{Total iterations} \\
         \midrule
-        \texttt{claude-sonnet-4-6} & \textbf{19} \\
-        \texttt{gemini-3-flash} & \textbf{27} \\
+        \texttt{claude-sonnet-4-6} & \textbf{27} \\
+        \texttt{gemini-3-flash} & \textbf{27} + \due{Kafka gemini-3-flash rounds} \\
         \bottomrule
     \end{tabular}
 \end{table}
@@ -731,6 +785,20 @@ Table~\ref{tab:pr-drift} summarizes the pull request drift results by repository
             \end{itemize}
         \end{itemize}
     \end{itemize}
+    \item Apache Kafka: Pull request evaluation was not completed in this phase and remains a \due{Kafka future evaluation item}.
+    \begin{itemize}
+        \item \due{Kafka PR identifier}:
+        \begin{itemize}
+            \item \texttt{claude-sonnet-4-6}: \due{PASS/FAIL}
+            \begin{itemize}
+                \item Rationale: \due{Reason for Kafka PR result under \texttt{claude-sonnet-4-6}}
+            \end{itemize}
+            \item \texttt{gemini-3-flash}: \due{PASS/FAIL}
+            \begin{itemize}
+                \item Rationale: \due{Reason for Kafka PR result under \texttt{gemini-3-flash}}
+            \end{itemize}
+        \end{itemize}
+    \end{itemize}
 \end{itemize}
 
 \begin{table}[t]
@@ -750,25 +818,27 @@ Table~\ref{tab:pr-drift} summarizes the pull request drift results by repository
                                         & 2375 & PASS & PASS \\
         \midrule
         HashiCorp Consul & \due{Consul PRs} & NA & NA \\
+        \midrule
+        Apache Kafka & \due{Kafka PRs} & \due{NA} & \due{NA} \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-Overall, all six model-repository combinations reached executable stable suites with 0 baseline violations. \texttt{claude-sonnet-4-6} required less total convergence effort across repositories, 19 iterations versus 27 for \texttt{gemini-3-flash} (Table~\ref{tab:convergence-total}). \texttt{claude-sonnet-4-6} produced the stronger suites for ZooKeeper and Consul, while \texttt{gemini-3-flash} produced the stronger suite for Spring Framework.
+Overall, all seven completed model-repository combinations reached executable stable suites with 0 baseline violations; the eighth combination, \texttt{gemini-3-flash} on Apache Kafka, is a \due{Kafka gemini-3-flash run} follow-up. \texttt{claude-sonnet-4-6} required less total convergence effort across the four repositories, 27 iterations versus \texttt{27 + \due{Kafka gemini-3-flash rounds}} for \texttt{gemini-3-flash} (Table~\ref{tab:convergence-total}). \texttt{claude-sonnet-4-6} produced the stronger suites for ZooKeeper, Consul, and Kafka (the Kafka comparison is one-sided pending the \due{Kafka gemini-3-flash run}), while \texttt{gemini-3-flash} produced the stronger suite for Spring Framework.
 
 \subsubsection{Discussion}
 \begin{itemize}
     \item Interpretation of major findings: The evaluation shows that LLM-generated enforcement artifacts can reach executable, zero-violation baselines for both Java and Go repositories, but the quality of the resulting suite depends strongly on how well the model's architectural assumptions match the target system. This is consistent with prior findings that LLMs are more reliable when architectural constraints are explicit and harder to use when rules depend on implicit system context \cite{schindler2024,su2026evaluating}.
     \begin{itemize}
-        \item \texttt{claude-sonnet-4-6}: performed better on ZooKeeper and Consul, where the architecture required interpreting implicit legacy boundaries such as ZooKeeper's Protocol layer and Consul's Server/Consensus tier.
+        \item \texttt{claude-sonnet-4-6}: performed better on ZooKeeper, Consul, and Kafka, where the architecture required interpreting implicit legacy boundaries such as ZooKeeper's Protocol layer, Consul's Server/Consensus tier, and Kafka's KIP-driven cross-cutting patterns (SPI inversion, shared DTO enums, broker-as-client RPCs, KIP-405 tiered metadata storage, and KIP-932 share-group consumer enums), which were accommodated as 22 individually-rationalised \texttt{ignoreDependency} carve-outs rather than wildcard suppressions. The Kafka head-to-head against \texttt{gemini-3-flash} is one-sided pending the \due{Kafka gemini-3-flash run}.
         \item \texttt{gemini-3-flash}: performed better on Spring Framework, where a stricter and more uniform layered interpretation matched the documented module structure more closely.
         \item The model comparison therefore does not show one universally better generator. It shows that architectural fidelity is system-dependent.
     \end{itemize}
     \item Explanations for failures, mapping errors, and fixes: Most failures fell into three categories. These failures reflect the same limitation identified in prior work: LLMs can help recover or reason about architecture, but they should not be trusted as unvalidated compliance oracles \cite{tessa2025,su2026evaluating}.
     \begin{itemize}
-        \item Build and API hallucinations: Java suites failed when generated code referenced non-existent ArchUnit APIs or omitted required imports. The clearest case was ZooKeeper with \texttt{gemini-3-flash}, which repeatedly reintroduced\newline{\texttt{mayBeAccessedByAllLayers()}}.
+        \item Build and API hallucinations: Java suites failed when generated code referenced non-existent ArchUnit APIs or omitted required imports. The clearest case was ZooKeeper with \texttt{gemini-3-flash}, which repeatedly reintroduced\newline{\texttt{mayBeAccessedByAllLayers()}}. Kafka with \texttt{claude-sonnet-4-6} produced two compile-fix episodes of a different flavour: one static-final layer-array initialization-order error in round 1 (an order-of-evaluation bug rather than an API hallucination) and one Java generics inference error in round 7 that was introduced by a reviewer-recommended narrowing patch and fixed in round 8.
         \item Schema and harness errors: Go suites failed or became partially vacuous when generated YAML used unsupported arch-go schema shapes or Makefile commands. These issues did not always appear as ordinary compilation failures, but they still prevented reliable enforcement.
-        \item Mapping errors: Large violation counts usually reflected mismatches between documentation-level concepts and concrete package structure. Fixes converged by reclassifying packages, introducing missing architectural layers, or adding narrow exceptions for known cross-cutting utilities.
+        \item Mapping errors: Large violation counts usually reflected mismatches between documentation-level concepts and concrete package structure. Fixes converged by reclassifying packages, introducing missing architectural layers, or adding narrow exceptions for known cross-cutting utilities. The Kafka case illustrates the trade-off between coverage and vacuity: 8 of the 33 final \texttt{claude-sonnet-4-6} Kafka rules are explicitly tagged \texttt{FUTURE-PROOFING ONLY} because their target packages are currently empty in the scanned classpath, retaining the rules as guards against future regressions while acknowledging that they cannot fire today.
     \end{itemize}
     \item Implications for preventing architectural drift: The results support using LLMs as translators and reviewers, but not as final judges. This extends architecture-recovery work by adding executable enforcement after recovery rather than stopping at reconstructed design knowledge \cite{pan2026}.
     \begin{itemize}
@@ -781,17 +851,17 @@ Overall, all six model-repository combinations reached executable stable suites 
 
 \subsubsection{Answers to research questions}
 \begin{enumerate}
-    \item RQ1: Yes, with correction. Both generation models produced executable ArchUnit or arch-go enforcement artifacts for all three repositories, and all final suites reached 0 baseline violations. However, the path to execution required compile, schema, and mapping fixes. This means LLMs can translate architecture documentation into executable rules, but the rules must be validated through deterministic build and enforcement tools, which aligns with prior evidence that LLM-generated architectural rules need external validation \cite{schindler2024,su2026evaluating}.
+    \item RQ1: Yes, with correction. Both generation models produced executable ArchUnit or arch-go enforcement artifacts for all four repositories in the seven completed model-repository combinations, and all completed final suites reached 0 baseline violations; the eighth combination (\texttt{gemini-3-flash} on Apache Kafka) is a \due{Kafka gemini-3-flash run} follow-up. However, the path to execution required compile, schema, and mapping fixes. This means LLMs can translate architecture documentation into executable rules, but the rules must be validated through deterministic build and enforcement tools, which aligns with prior evidence that LLM-generated architectural rules need external validation \cite{schindler2024,su2026evaluating}.
     \item RQ2: Yes, but detection was suite-dependent. The evaluated Spring Framework pull requests produced no new violations under either suite. ZooKeeper PR-2307 introduced new violations under the \texttt{claude-sonnet-4-6} suite but passed under the \texttt{gemini-3-flash} suite. Thus, the evaluation detected at least one new PR-level drift case, but also showed that drift detection depends on the concrete generated rule set. This supports prior work that architectural drift detection is sensitive to the representation of the architectural constraint being checked \cite{tessa2025,li2023}.
-    \item RQ3: \texttt{claude-sonnet-4-6} required less total convergence effort, 19 iterations versus 27 for \texttt{gemini-3-flash}, and produced the stronger suites for ZooKeeper and Consul. \newline\texttt{gemini-3-flash} produced the stronger Spring Framework suite. The comparison suggests that model performance is architecture-dependent rather than universally dominated by one model, which is consistent with prior results showing that LLM effectiveness changes with the explicitness and formality of the target architectural knowledge \cite{schindler2024,su2026evaluating}.
+    \item RQ3: \texttt{claude-sonnet-4-6} required less total convergence effort, 27 iterations across the four repositories versus \texttt{27 + \due{Kafka gemini-3-flash rounds}} for \texttt{gemini-3-flash}, and produced the stronger suites for ZooKeeper, Consul, and Kafka. \newline\texttt{gemini-3-flash} produced the stronger Spring Framework suite. The Kafka half of this comparison is one-sided pending the \due{Kafka gemini-3-flash run}; the other three repositories provide a complete head-to-head. The comparison suggests that model performance is architecture-dependent rather than universally dominated by one model, which is consistent with prior results showing that LLM effectiveness changes with the explicitness and formality of the target architectural knowledge \cite{schindler2024,su2026evaluating}.
 \end{enumerate}
 
 \subsubsection{Threats to validity}\mbox{}\\\hspace*{\parindent}
 Internal validity: The workflow depends on probabilistic LLM generation and review. A different run could produce a different package mapping, exception set, or convergence path. The use of \texttt{claude-opus-4-7} as the reviewer model may also bias the process toward artifacts generated by \texttt{claude-sonnet-4-6}. Finally, the triage loop assumes that the reviewer can reliably distinguish mapping errors from real architectural drift; incorrect triage could suppress a valid constraint or preserve a false positive.
 
-External validity: The evaluation covers three repositories and two languages: Spring Framework, Apache ZooKeeper, and HashiCorp Consul in Java and Go. The results may not generalize to other languages, architectural styles, enforcement tools, or projects without usable architecture documentation.
+External validity: The evaluation covers four repositories and two languages: Spring Framework, Apache ZooKeeper, and Apache Kafka in Java, and HashiCorp Consul in Go. The results may not generalize to other languages, architectural styles, enforcement tools, or projects without usable architecture documentation.
 
-Construct validity: The evaluation treats the ArchAgent benchmark documentation as ground truth, but the documentation may be incomplete, high-level, or stale relative to the current implementation. In that case, a reported violation may reflect documentation drift rather than code drift. In addition, a 0-violation baseline does not guarantee architectural fidelity if the suite reaches that state through broad suppressions, synthetic layers, or overly permissive mappings.
+Construct validity: The evaluation treats the ArchAgent benchmark documentation as ground truth, but the documentation may be incomplete, high-level, or stale relative to the current implementation. In that case, a reported violation may reflect documentation drift rather than code drift. In addition, a 0-violation baseline does not guarantee architectural fidelity if the suite reaches that state through broad suppressions, synthetic layers, or overly permissive mappings. The Apache Kafka run is the strongest illustration of this risk: the supplied benchmark document describes the Kafka Streams runtime only and contains no cross-package prohibitions for \texttt{org.apache.kafka.*}, so all 33 rules in the \texttt{claude-sonnet-4-6} Kafka suite are inferences from package naming rather than encodings of documented prohibitions; the rule file's own final-thoughts calibration explicitly flags this asymmetry.
 
 Conclusion validity: The sample size is too small for statistical claims about model superiority. The results support qualitative conclusions about feasibility, failure modes, and the need for hybrid oversight, but larger studies across more repositories, pull requests, and languages are needed before making general claims about model ranking.
 
@@ -816,7 +886,7 @@ Conclusion validity: The sample size is too small for statistical claims about m
     \end{itemize}
     \item Systems and datasets
     \begin{itemize}
-        \item Scope of evaluated systems: The replication package contains completed artifacts for Spring Framework, Apache ZooKeeper, and HashiCorp Consul only.
+        \item Scope of evaluated systems: The replication package contains completed artifacts for Spring Framework, Apache ZooKeeper, HashiCorp Consul, and Apache Kafka only; the Apache Kafka $\times$ \texttt{gemini-3-flash} run and the Apache Kafka pull request analysis are \due{Kafka follow-up items}.
         \item Documentation dependency: The approach assumes the availability of ArchAgent benchmark ground truth documentation for each target repository.
     \end{itemize}
     \item Language support
@@ -837,10 +907,12 @@ Correct case: HashiCorp Consul's Server/Consensus tier was a strong alignment ca
 
 Incorrect or weak case: Spring Framework's cross-cutting utilities exposed a documentation-to-code mismatch. The documentation presents clean boundaries between Core Container, AOP, Data Access, Web, and other modules, but the implementation contains practical bridge utilities such as validation helpers, cache infrastructure, and exception-translation paths. When those utilities were forced into strict layers, \texttt{claude-sonnet-4-6} introduced synthetic layers and broad suppressions to reach a passing state. This shows that a passing suite can still be architecturally weak if the generated rules accommodate code reality by weakening the documented model too much.
 
-\section{Conclusions and future work}
-This project shows that LLMs can generate executable architectural rules, but reliable drift prevention requires a hybrid workflow that combines LLM generation, deterministic enforcement, and repository-aware engineer oversight \cite{schindler2024,su2026evaluating}. Across the evaluated repositories, both generation models eventually produced stable suites with 0 baseline violations, but the convergence paths required compile fixes, schema fixes, mapping corrections, and reviewer-guided triage.
+Documentation-orthogonal case: Apache Kafka's supplied architecture document describes the Kafka Streams runtime, not the broader \texttt{org.apache.kafka.*} package layering. The pipeline still converged to a 33-of-33 passing suite under \texttt{claude-sonnet-4-6}, but the resulting rule file's calibration explicitly disclaims documentation fidelity: every \texttt{because(...)} clause is prefixed with the disclaimer ``Inferred from package naming,'' and the final-thoughts document records that the strongest claim the loop justifies is a three-way fixed point among rules, code, and the reviewer's reading rather than agreement with the documentation. This shows that the pipeline can produce a useful CI regression detector even when the supplied documentation is orthogonal to the target codebase, but cannot validate documented intent in that scenario.
 
-The main lesson is that enforcement quality cannot be judged by compilation and 0 baseline violations alone. The fix histories, reviewer findings, and pull request results show that a suite can pass by using broad suppressions, synthetic layers, or incomplete mappings. The stronger result is the suite that both passes and preserves the documented architectural intent. Pull request drift detection is also suite-dependent: ZooKeeper PR-2307 failed under one generated suite but passed under the other. This complements architecture recovery research by showing that recovered or translated architecture must be operationalized, reviewed, and maintained to prevent future drift \cite{pan2026}.
+\section{Conclusions and future work}
+This project shows that LLMs can generate executable architectural rules, but reliable drift prevention requires a hybrid workflow that combines LLM generation, deterministic enforcement, and repository-aware engineer oversight \cite{schindler2024,su2026evaluating}. Across the four evaluated repositories (Spring Framework, Apache ZooKeeper, HashiCorp Consul, and Apache Kafka), both generation models eventually produced stable suites with 0 baseline violations in the seven completed model-repository combinations; the eighth combination (\texttt{gemini-3-flash} on Apache Kafka) is a \due{Kafka gemini-3-flash run} follow-up. The convergence paths required compile fixes, schema fixes, mapping corrections, and reviewer-guided triage.
+
+The main lesson is that enforcement quality cannot be judged by compilation and 0 baseline violations alone. The fix histories, reviewer findings, and pull request results show that a suite can pass by using broad suppressions, synthetic layers, or incomplete mappings. The stronger result is the suite that both passes and preserves the documented architectural intent. Pull request drift detection is also suite-dependent: ZooKeeper PR-2307 failed under one generated suite but passed under the other. The Apache Kafka case adds a complementary lesson: when the supplied documentation does not describe the relevant scope (the Kafka document specifies the Streams runtime rather than the broader package layering), the pipeline still converges to a passing suite, but the calibration step is what preserves honesty about the limit by labelling every rule as inferred rather than documented. This complements architecture recovery research by showing that recovered or translated architecture must be operationalized, reviewed, and maintained to prevent future drift \cite{pan2026}.
 
 \subsection{Future Work}
 Future work should improve the generation workflow by requiring explicit mapping 
