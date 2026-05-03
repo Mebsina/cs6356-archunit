@@ -338,6 +338,7 @@ Model comparison strengthens the justification. Rule generation is evaluated usi
     \item Development environment
     \begin{itemize}
         \item Cursor IDE
+        \item Antigravity IDE
     \end{itemize}
     \item Enforcement libraries
     \begin{itemize}
@@ -840,8 +841,18 @@ This project shows that LLMs can generate executable architectural rules, but re
 
 The main lesson is that enforcement quality cannot be judged by compilation and 0 baseline violations alone. The fix histories, reviewer findings, and pull request results show that a suite can pass by using broad suppressions, synthetic layers, or incomplete mappings. The stronger result is the suite that both passes and preserves the documented architectural intent. Pull request drift detection is also suite-dependent: ZooKeeper PR-2307 failed under one generated suite but passed under the other. This complements architecture recovery research by showing that recovered or translated architecture must be operationalized, reviewed, and maintained to prevent future drift \cite{pan2026}.
 
-Future work should improve documentation alignment by requiring explicit mapping rationales, repository-aware review, and checks for broad suppressions, vacuous rules, and synthetic layers. The evaluation should also be broadened to more repositories, more pull requests, additional languages, and controlled drift injections so that drift-detection behavior can be compared across known correct and incorrect cases. The generated rules should also be studied in CI to evaluate them as practical merge-time safeguards.
-
+\subsection{Future Work}
+Future work should improve the generation workflow by requiring explicit mapping 
+rationales, automated checks for broad suppressions, vacuous rules, and synthetic 
+layers, and repository-aware engineer review before a suite is accepted. The 
+generation step should also be extended by combining LLM translation with inductive 
+rule learning \cite{schindler2024} and by treating collected fix histories as 
+training data to produce more accurate translators over time. The evaluation should 
+be broadened to additional languages and enforcement frameworks, more repositories, 
+more pull requests, and controlled drift injections so that drift-detection behavior 
+can be compared across known correct and incorrect cases. Finally, the generated 
+rules should be studied inside a CI pipeline to evaluate whether they serve as 
+practical and reliable merge-time safeguards.
 
 
 %%
