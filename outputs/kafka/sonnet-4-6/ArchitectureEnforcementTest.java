@@ -306,6 +306,21 @@ public class ArchitectureEnforcementTest {
                 DescribedPredicate.describe(
                     "is org.apache.kafka.metadata.ConfigRepository",
                     (JavaClass c) -> c.getName().equals("org.apache.kafka.metadata.ConfigRepository")))
+            // TIERED-01: server.log.remote.metadata.storage is the topic-based tiered-metadata
+            // store (KIP-405). By design the entire sub-package uses KafkaProducer/KafkaConsumer/
+            // Admin/NewTopic to read & write the internal __remote_log_metadata topic. No narrower
+            // exemption is meaningful because every major class in the package is a client user.
+            .ignoreDependency(
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.server.log.remote.metadata.storage.."),
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.clients.."))
+            // SHARE-01: server.share consumes KIP-932 share-group wire-protocol enums
+            // (AcknowledgeType, ShareAcquireMode) from clients.consumer — same shared-DTO
+            // pattern as MOD-02/03/04. Sub-package-scoped to stay readable as KIP-932 grows.
+            .ignoreDependency(
+                JavaClass.Predicates.resideInAPackage("org.apache.kafka.server.share.."),
+                JavaClass.Predicates.resideInAnyPackage(
+                    "org.apache.kafka.clients.consumer",
+                    "org.apache.kafka.clients.consumer.internals"))
             // MOD-01: server.config implements interfaces defined in the metadata layer (SPI inversion)
             .ignoreDependency(
                 JavaClass.Predicates.resideInAPackage("org.apache.kafka.server.config.."),
@@ -334,6 +349,8 @@ public class ArchitectureEnforcementTest {
                             || n.equals("org.apache.kafka.clients.Metadata")
                             || n.startsWith("org.apache.kafka.clients.Metadata$")
                             || n.equals("org.apache.kafka.clients.MetadataUpdater")
+                            || n.equals("org.apache.kafka.clients.MetadataRecoveryStrategy")
+                            || n.startsWith("org.apache.kafka.clients.MetadataRecoveryStrategy$")
                             || n.equals("org.apache.kafka.clients.ApiVersions")
                             || n.equals("org.apache.kafka.clients.ManualMetadataUpdater")
                             || n.equals("org.apache.kafka.clients.CommonClientConfigs")

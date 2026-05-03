@@ -139,3 +139,14 @@ Fix:
 - VAC-NEW-02: Updated controller_must_not_depend_on_coordinator because() to "FUTURE-PROOFING ONLY: coordinator.. is empty in current scan...". Added inline comment "FUTURE-PROOFING ONLY: empty in current scan" next to the coordinator.. entry in network_must_not_depend_on_server_runtime.
 - PREC-01: Replaced MOD-06 hand-written startsWith predicate with idiomatic resideInAnyPackage("org.apache.kafka.image..", "org.apache.kafka.metadata..", "org.apache.kafka.controller..").
 - PREC-02: Replaced MAP-03 ConfigRepository predicate body with c.getName().equals("org.apache.kafka.metadata.ConfigRepository") and updated description to remove the "(top-level SAM only)" qualifier.
+
+---
+
+## 9. Fix review findings (Review #7 by opus-4-7)
+
+Review #7
+Suite re-broke after Review #6's precision narrowing (intended). 1 failing test, 79 violations — all on kafka_layered_architecture. (1) TIERED-01 (HIGH) — server.log.remote.metadata.storage (KIP-405 topic-based tiered-metadata store) uses KafkaProducer/KafkaConsumer/Admin/NewTopic by design to read & write the internal __remote_log_metadata topic (~70 violations). The old server.. → clients.. wildcard suppressed this; the OVR-01 narrowing exposed it. (2) SHARE-01 (HIGH) — server.share (KIP-932 server-side share-group) consumes clients.consumer.AcknowledgeType and clients.consumer.internals.ShareAcquireMode as wire-protocol enums (~8 violations). Same shared-DTO pattern as MOD-02/03/04; also previously hidden by the wildcard. (3) OVR-01-WIDEN (MEDIUM) — clients.MetadataRecoveryStrategy (KIP-899 enum) missing from the OVR-01 enumerated list (1 violation, NodeToControllerChannelManagerImpl.buildNetworkClient).
+Fix:
+- TIERED-01: Added ignoreDependency(server.log.remote.metadata.storage.. -> clients..) — wholesale exemption because every major class in the package is a client user by design.
+- SHARE-01: Added ignoreDependency(server.share.. -> resideInAnyPackage(clients.consumer, clients.consumer.internals)) — sub-package-scoped to remain readable as KIP-932 grows.
+- OVR-01-WIDEN: Added MetadataRecoveryStrategy and MetadataRecoveryStrategy$ to the OVR-01 DescribedPredicate enumerated list, inserted near MetadataUpdater for thematic grouping.
