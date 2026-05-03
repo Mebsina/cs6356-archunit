@@ -393,42 +393,6 @@ Model comparison strengthens the justification. Rule generation is evaluated usi
     \item The artifacts are deployed on pull request branches and validated against the baseline
 \end{enumerate}
 
-\subsection{Limitations}
-\begin{itemize}
-    \item Inputs
-    \begin{itemize}
-        \item Incomplete coverage: The ground truth documentation does not specify every package and dependency present in the current codebase.
-        \item Ambiguity: Some constraints are described at a high level, so mapping to concrete packages requires judgment \cite{su2026evaluating}.
-        \item Staleness: The documentation may lag behind the current repository version, so some violations may reflect documentation drift rather than code drift.
-        \item Granularity mismatch: The documentation may define subsystems while enforcement operates on packages and import paths.
-    \end{itemize}
-    \item Outputs
-    \begin{itemize}
-        \item Over strict or over permissive rules: Generated constraints can block legitimate dependencies or miss real drift.
-        \item Vacuous constraints risk: Rules can execute successfully while failing to meaningfully constrain the architecture.
-        \item LLM hallucination: Generated artifacts can reference functions, classes, or configuration fields that do not exist.
-        \item Mapping sensitivity: Incorrect package mappings can produce outputs that enforce the wrong boundaries.
-        \item Fragility to refactors: Package restructuring can require rule updates even when architectural intent is unchanged.
-        \item Execution scope limits: The checks only cover the code included in the configured build and scan scope.
-    \end{itemize}
-    \item Systems and datasets
-    \begin{itemize}
-        \item Scope of evaluated systems: The replication package contains completed artifacts for Spring Framework, Apache ZooKeeper, and HashiCorp Consul only.
-        \item Documentation dependency: The approach assumes the availability of ArchAgent benchmark ground truth documentation for each target repository.
-    \end{itemize}
-    \item Language support
-    \begin{itemize}
-        \item Supported languages: Java and Go
-        \item Not supported: Other languages and enforcement frameworks are out of scope in this implementation.
-    \end{itemize}
-    \item Evaluation limitations
-    \begin{itemize}
-        \item Cost and API usage: The workflow depends on paid IDE access and constrained API usage.
-        \item Pull request availability: Drift detection depends on the availability and representativeness of open pull requests.
-        \item Manual judgment: Some mapping decisions require manual review when documentation is ambiguous or outdated.
-    \end{itemize}
-\end{itemize}
-
 \section{Empirical evaluation}
 \subsection{Evaluation setup}
 \subsubsection{Evaluation Goal}
@@ -830,6 +794,43 @@ External validity: The evaluation covers three repositories and two languages: S
 Construct validity: The evaluation treats the ArchAgent benchmark documentation as ground truth, but the documentation may be incomplete, high-level, or stale relative to the current implementation. In that case, a reported violation may reflect documentation drift rather than code drift. In addition, a 0-violation baseline does not guarantee architectural fidelity if the suite reaches that state through broad suppressions, synthetic layers, or overly permissive mappings.
 
 Conclusion validity: The sample size is too small for statistical claims about model superiority. The results support qualitative conclusions about feasibility, failure modes, and the need for hybrid oversight, but larger studies across more repositories, pull requests, and languages are needed before making general claims about model ranking.
+
+
+\subsection{Limitations}
+\begin{itemize}
+    \item Inputs
+    \begin{itemize}
+        \item Incomplete coverage: The ground truth documentation does not specify every package and dependency present in the current codebase.
+        \item Ambiguity: Some constraints are described at a high level, so mapping to concrete packages requires judgment \cite{su2026evaluating}.
+        \item Staleness: The documentation may lag behind the current repository version, so some violations may reflect documentation drift rather than code drift.
+        \item Granularity mismatch: The documentation may define subsystems while enforcement operates on packages and import paths.
+    \end{itemize}
+    \item Outputs
+    \begin{itemize}
+        \item Over strict or over permissive rules: Generated constraints can block legitimate dependencies or miss real drift.
+        \item Vacuous constraints risk: Rules can execute successfully while failing to meaningfully constrain the architecture.
+        \item LLM hallucination: Generated artifacts can reference functions, classes, or configuration fields that do not exist.
+        \item Mapping sensitivity: Incorrect package mappings can produce outputs that enforce the wrong boundaries.
+        \item Fragility to refactors: Package restructuring can require rule updates even when architectural intent is unchanged.
+        \item Execution scope limits: The checks only cover the code included in the configured build and scan scope.
+    \end{itemize}
+    \item Systems and datasets
+    \begin{itemize}
+        \item Scope of evaluated systems: The replication package contains completed artifacts for Spring Framework, Apache ZooKeeper, and HashiCorp Consul only.
+        \item Documentation dependency: The approach assumes the availability of ArchAgent benchmark ground truth documentation for each target repository.
+    \end{itemize}
+    \item Language support
+    \begin{itemize}
+        \item Supported languages: Java and Go
+        \item Not supported: Other languages and enforcement frameworks are out of scope in this implementation.
+    \end{itemize}
+    \item Evaluation limitations
+    \begin{itemize}
+        \item Cost and API usage: The workflow depends on paid IDE access and constrained API usage.
+        \item Pull request availability: Drift detection depends on the availability and representativeness of open pull requests.
+        \item Manual judgment: Some mapping decisions require manual review when documentation is ambiguous or outdated.
+    \end{itemize}
+\end{itemize}
 
 \subsubsection{Examples of correct and incorrect cases}\mbox{}\\\hspace*{\parindent}
 Correct case: HashiCorp Consul's Server/Consensus tier was a strong alignment case. The architecture documentation identifies Consul servers as a distinct Raft-backed control-plane component. \texttt{claude-sonnet-4-6} mapped this intent to the \texttt{agent/consul} package family and encoded additional intra-server constraints for state, FSM, and discovery-chain boundaries. This case aligned documentation, package structure, and generated constraints, resulting in a stable 0-violation baseline.
