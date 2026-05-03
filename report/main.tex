@@ -780,17 +780,39 @@ Table~\ref{tab:pr-drift} summarizes the pull request drift results by repository
             \end{itemize}
         \end{itemize}
     \end{itemize}
-    \item HashiCorp Consul: Pull request evaluation was not completed in this phase and remains a \due{future evaluation item}.
+    \item HashiCorp Consul: Three pull requests were evaluated.
     \begin{itemize}
-        \item \due{Consul PR identifier}:
+        \item PR 23296:
         \begin{itemize}
-            \item \texttt{claude-sonnet-4-6}: \due{PASS/FAIL}
+            \item \texttt{claude-sonnet-4-6}: PASS
             \begin{itemize}
-                \item Rationale: \due{Reason for Consul PR result under \texttt{claude-sonnet-4-6}}
+                \item Rationale: Changes are limited to container scanning and CI test infrastructure, with no impact on core Consul code or architectural dependencies.
             \end{itemize}
-            \item \texttt{gemini-3-flash}: \due{PASS/FAIL}
+            \item \texttt{gemini-3-flash}: PASS
             \begin{itemize}
-                \item Rationale: \due{Reason for Consul PR result under \texttt{gemini-3-flash}}
+                \item Rationale: Treated as CI/test tooling updates that do not affect runtime behavior or structural analysis.
+            \end{itemize}
+        \end{itemize}
+        \item PR 23280:
+        \begin{itemize}
+            \item \texttt{claude-sonnet-4-6}: PASS
+            \begin{itemize}
+                \item Rationale: Envoy/xDS and peering updates stay within existing integration boundaries and do not introduce forbidden dependency edges.
+            \end{itemize}
+            \item \texttt{gemini-3-flash}: PASS
+            \begin{itemize}
+                \item Rationale: Changes remain within supported API/integration mappings and do not violate architectural constraints.
+            \end{itemize}
+        \end{itemize}
+        \item PR 23306:
+        \begin{itemize}
+            \item \texttt{claude-sonnet-4-6}: PASS
+            \begin{itemize}
+                \item Rationale: Vulnerability scan script changes affect only CI tooling and not application logic or architecture.
+            \end{itemize}
+            \item \texttt{gemini-3-flash}: PASS
+            \begin{itemize}
+                \item Rationale: Classified as pipeline-only modifications with no impact on runtime or dependency structure.
             \end{itemize}
         \end{itemize}
     \end{itemize}
@@ -826,7 +848,9 @@ Table~\ref{tab:pr-drift} summarizes the pull request drift results by repository
                                         & 2308 & PASS & PASS \\
                                         & 2375 & PASS & PASS \\
         \midrule
-        HashiCorp Consul & \due{Consul PRs} & NA & NA \\
+        HashiCorp Consul & 23296 & PASS & PASS \\ 
+                                        & 23280 & PASS & PASS \\ 
+                                        & 23306 & PASS & PASS \\
         \midrule
         Apache Kafka & \due{Kafka PRs} & \due{NA} & \due{NA} \\
         \bottomrule
