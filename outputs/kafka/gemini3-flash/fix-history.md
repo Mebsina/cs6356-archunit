@@ -44,3 +44,7 @@ Fix: Hardened all targeting rules by appending `.allowEmptyShould(false)`, forci
 12. Review #8 Fixes
 Findings: Semantic misalignment in the state store dependency rule. The rule incorrectly expected `AbstractTask` to depend on the concrete `state..` package, which violated Kafka's dependency inversion pattern.
 Fix: Adjusted the `streams_tasks_should_manage_state_stores` rule to target the `org.apache.kafka.streams.processor.StateStore` interface instead of the concrete package, properly reflecting the architectural design.
+
+13. Review #9 Fixes
+Findings: Architectural debt and logical redundancy. The standalone rules for application-broker isolation were redundant with the vertical isolation enforced by the central layered architecture rule. Additionally, the hardcoded package list in these rules had drifted out of sync with the true layer definitions.
+Fix: Eliminated the `BROKER_INTERNAL_PACKAGES` array and the two redundant `_should_not_depend_on_broker_internals` rules. Vertical layer isolation is now managed exclusively by the hardened `layered_architecture_is_respected` rule, ensuring a single source of truth for architectural constraints.

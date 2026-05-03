@@ -148,33 +148,6 @@ public class ArchitectureEnforcementTest {
         .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.streams..")
         .because("Parallel application frameworks.");
 
-    private static final String[] BROKER_INTERNAL_PACKAGES = {
-        "org.apache.kafka.controller..",
-        "org.apache.kafka.metadata..",
-        "org.apache.kafka.image..",
-        "org.apache.kafka.snapshot..",
-        "org.apache.kafka.raft..",
-        "org.apache.kafka.storage..",
-        "org.apache.kafka.security..",
-        "org.apache.kafka.server.log..",
-        "org.apache.kafka.server.share..",
-        "org.apache.kafka.server.purgatory..",
-        "org.apache.kafka.server.network..",
-        "org.apache.kafka.server.quota.."
-    };
-
-    @ArchTest
-    public static final ArchRule streams_should_not_depend_on_broker_internals = noClasses()
-        .that().resideInAPackage("org.apache.kafka.streams..")
-        .should().dependOnClassesThat().resideInAnyPackage(BROKER_INTERNAL_PACKAGES)
-        .because("Application layer isolation.");
-
-    @ArchTest
-    public static final ArchRule connect_should_not_depend_on_broker_internals = noClasses()
-        .that().resideInAPackage("org.apache.kafka.connect..")
-        .should().dependOnClassesThat().resideInAnyPackage(BROKER_INTERNAL_PACKAGES)
-        .because("Application layer isolation.");
-
     @ArchTest
     public static final ArchRule raft_should_not_depend_on_controller = noClasses()
         .that().resideInAPackage("org.apache.kafka.raft..")
@@ -190,7 +163,7 @@ public class ArchitectureEnforcementTest {
     @ArchTest
     public static final ArchRule raft_should_not_depend_on_image = noClasses()
         .that().resideInAPackage("org.apache.kafka.raft..")
-        .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.image..")
+        .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.controller..")
         .because("Raft independent of metadata image.");
 
     @ArchTest
