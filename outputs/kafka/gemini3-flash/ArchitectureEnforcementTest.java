@@ -163,7 +163,7 @@ public class ArchitectureEnforcementTest {
     @ArchTest
     public static final ArchRule raft_should_not_depend_on_image = noClasses()
         .that().resideInAPackage("org.apache.kafka.raft..")
-        .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.controller..")
+        .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.image..")
         .because("Raft independent of metadata image.");
 
     @ArchTest
