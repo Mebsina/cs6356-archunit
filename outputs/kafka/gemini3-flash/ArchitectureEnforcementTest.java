@@ -9,13 +9,18 @@ import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 /**
  * Kafka Architecture Enforcement Test
  *
- * This test suite enforces the architectural integrity of the Apache Kafka project by
- * defining a strict layered structure and preventing circular or illegal dependencies
- * between modules.
+ * This test suite enforces the architectural integrity of the Apache Kafka
+ * project by defining a five-layer structure (Application / Server / Client /
+ * Infrastructure / Support) inferred from Kafka's actual module topology.
  *
- * NOTE: The layer hierarchy is derived from Kafka's actual module topology and KRaft
- * design patterns. See the 'layered_architecture_is_respected' rule for canonical
- * layer membership.
+ * The structure is NOT strict in the textbook sense: Client is allowed to be
+ * accessed from Support and Infrastructure to accommodate documented
+ * cross-jar DTO relationships (e.g., common.requests carries clients.admin
+ * types, server.util.InterBrokerSendThread wraps clients.KafkaClient, and
+ * security.CredentialProvider takes clients.admin.ScramMechanism).
+ *
+ * See the layered_architecture_is_respected rule for canonical layer
+ * membership and access policy.
  */
 @AnalyzeClasses(
     packages = "org.apache.kafka",
@@ -25,6 +30,9 @@ public class ArchitectureEnforcementTest {
     @ArchTest
     public static final ArchRule layered_architecture_is_respected = layeredArchitecture()
         .consideringOnlyDependenciesInAnyPackage("org.apache.kafka..")
+        // Declare the more-specific generated layer FIRST so its glob wins.
+        .layer("GeneratedDtos").definedBy(
+            "org.apache.kafka.server.log.remote.metadata.storage.generated..")
         .layer("Application").definedBy(
             "org.apache.kafka.streams..",
             "org.apache.kafka.connect..")
@@ -60,14 +68,18 @@ public class ArchitectureEnforcementTest {
             "org.apache.kafka.config..",
             "org.apache.kafka.deferred..",
             "org.apache.kafka.queue..",
-            "org.apache.kafka.timeline..")
+            "org.apache.kafka.timeline..",
+            "org.apache.kafka.metadata.properties..")
 
         .whereLayer("Application").mayNotBeAccessedByAnyLayer()
+        // Server.mayOnlyBeAccessedByLayers("Application") is intentionally tight.
         .whereLayer("Server").mayOnlyBeAccessedByLayers("Application")
-        .whereLayer("Client").mayOnlyBeAccessedByLayers("Application", "Server", "Support")
+        .whereLayer("Client").mayOnlyBeAccessedByLayers("Application", "Server", "Support", "Infrastructure")
         .whereLayer("Infrastructure").mayOnlyBeAccessedByLayers("Application", "Server")
         .whereLayer("Support").mayOnlyBeAccessedByLayers("Application", "Server", "Client", "Infrastructure")
-        .because("Layer model derived from Kafka's actual module topology; Support->Client edge documents the historical common.requests<->clients.admin and server.util<->clients DTO carve-outs (see HIGH-A2/A3 in review #2).");
+        .whereLayer("GeneratedDtos").mayOnlyBeAccessedByLayers(
+            "Application", "Server", "Client", "Infrastructure", "Support")
+        .because("Layer model derived from Kafka's actual module topology. Client may be accessed from Support and Infrastructure to accommodate documented cross-jar DTO carve-outs. metadata.properties.. lives in Support because MetaProperties / PropertiesUtils are value types used by storage.LogManager. server.log.remote.metadata.storage.generated.. lives in GeneratedDtos as it contains generated message code.");
 
     @ArchTest
     public static final ArchRule streams_should_not_depend_on_connect = noClasses()
@@ -88,6 +100,7 @@ public class ArchitectureEnforcementTest {
         "org.apache.kafka.snapshot..",
         "org.apache.kafka.raft..",
         "org.apache.kafka.storage..",
+        "org.apache.kafka.security..",
         "org.apache.kafka.server.log..",
         "org.apache.kafka.server.share..",
         "org.apache.kafka.server.purgatory..",
@@ -128,9 +141,10 @@ public class ArchitectureEnforcementTest {
     @ArchTest
     public static final ArchRule metadata_should_not_depend_on_controller = noClasses()
         .that().resideInAPackage("org.apache.kafka.metadata..")
-        .and().resideOutsideOfPackage("org.apache.kafka.metadata.authorizer..")
-        .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.controller..")
-        .because("metadata is the controller's domain model. EXCEPTION: metadata.authorizer.ClusterMetadataAuthorizer/AclMutator intentionally constructs controller.ControllerRequestContext to forward ACL mutations through the controller.");
+        .should().dependOnClassesThat()
+            .resideInAPackage("org.apache.kafka.controller..")
+            .and().haveSimpleNameNotEndingWith("ControllerRequestContext")
+        .because("metadata is the controller's domain model. The ONLY allowed back-edge is metadata.authorizer.{ClusterMetadataAuthorizer, AclMutator} forwarding ACL mutations through controller.ControllerRequestContext.");
 
     @ArchTest
     public static final ArchRule image_should_not_depend_on_controller = noClasses()
@@ -155,6 +169,20 @@ public class ArchitectureEnforcementTest {
         .that().resideInAPackage("org.apache.kafka.security..")
         .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.storage..")
         .because("Security primitives must not couple to log-storage internals.");
+
+    @ArchTest
+    public static final ArchRule storage_may_reference_metadata_config_repository_only = noClasses()
+        .that().resideInAPackage("org.apache.kafka.storage..")
+        .should().dependOnClassesThat()
+            .resideInAPackage("org.apache.kafka.metadata..")
+            .and().haveSimpleNameNotEndingWith("ConfigRepository")
+        .because("LogManager is allowed to depend on metadata.ConfigRepository (SPI). Any other storage->metadata reference is a regression.");
+
+    @ArchTest
+    public static final ArchRule storage_should_not_depend_on_clients = noClasses()
+        .that().resideInAPackage("org.apache.kafka.storage..")
+        .should().dependOnClassesThat().resideInAPackage("org.apache.kafka.clients..")
+        .because("Storage must not pull in the public clients API; the only Infrastructure->Client edge is security.CredentialProvider <-> clients.admin.ScramMechanism.");
 
     @ArchTest
     public static final ArchRule core_client_should_not_depend_on_admin = noClasses()
