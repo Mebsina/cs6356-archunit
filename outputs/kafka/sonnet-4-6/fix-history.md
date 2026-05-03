@@ -35,3 +35,11 @@ documentation (`inputs/java/7_apache_kafka.pdf`) and the package structure listi
 - 1 rule: `metadata` must not depend on `server`
 - 3 fine-grained `noClasses()` rules for Core (`common`) isolation from Storage, Consensus, Server
 - 3 fine-grained `noClasses()` rules for Storage (`storage`) isolation from Consensus, Server, API
+
+---
+
+## 2. Fix compile error #1
+
+Compile #1
+Error: `ImportOption.DoNotIncludeTests.INSTANCE` cannot be resolved — `DoNotIncludeTests` has no static `INSTANCE` field in ArchUnit 1.x; it is a regular class, not an enum singleton.
+Fix: Replaced `.withImportOption(ImportOption.DoNotIncludeTests.INSTANCE)` with `.withImportOption(new ImportOption.DoNotIncludeTests())` on line 123 of `ArchitectureEnforcementTest.java`.

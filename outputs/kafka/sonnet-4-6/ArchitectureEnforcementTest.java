@@ -120,7 +120,7 @@ public class ArchitectureEnforcementTest {
     // =========================================================================
 
     private static final JavaClasses KAFKA_CLASSES = new ClassFileImporter()
-        .withImportOption(ImportOption.DoNotIncludeTests.INSTANCE)
+        .withImportOption(new ImportOption.DoNotIncludeTests())
         .withImportOption(location -> !location.contains("/test/")
                                    && !location.contains("/jmh/")
                                    && !location.contains("/trogdor/"))
