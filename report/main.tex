@@ -111,6 +111,15 @@
 
 \usepackage{array}
 \usepackage{multirow}
+\usepackage{listings}
+
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    frame=single,
+    columns=fullflexible,
+    literate={_}{{\_}}1
+}
 
 \newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
 \newcommand{\blue}[1]{{\color{blue}#1}}
@@ -485,6 +494,26 @@ To demonstrate that ground truth architecture documentation can be translated in
     \end{itemize}
 \end{itemize}
 
+\paragraph{Artifact Example.}\mbox{}\\
+The following rule demonstrates fine-grained architectural enforcement by restricting ORM packages from depending broadly on JDBC packages.
+
+
+\begin{lstlisting}[language=Java, caption={Restricted ORM-to-JDBC dependency}]
+@ArchTest
+public static final ArchRule
+orm_only_integrates_with_jdbc_via_datasource_and_exception_translation =
+    noClasses()
+        .that().resideInAPackage("org.springframework.orm..")
+        .should().dependOnClassesThat(
+            resideInAPackage("org.springframework.jdbc..")
+                .and(not(resideInAnyPackage(
+                    "org.springframework.jdbc.datasource..",
+                    "org.springframework.jdbc.support.."))))
+\end{lstlisting}
+
+Rather than allowing unrestricted access to the JDBC layer, this rule permits only specific integration pathways, preserving architectural boundaries.
+
+
 \paragraph{Apache ZooKeeper.}
 \begin{itemize}
     \item Execution: Both generated ArchUnit suites eventually compiled and ran under the Maven harness.
@@ -511,6 +540,26 @@ To demonstrate that ground truth architecture documentation can be translated in
     \end{itemize}
 \end{itemize}
 
+\paragraph{Artifact examples.}\mbox{}\\
+The architectural differences are clearly reflected in how each model codifies dependency boundaries between recipes, server internals, and core API layers.
+
+\begin{lstlisting}[language=Java, caption={Recipe-to-internals dependency restriction (sonnet-4-6)}]
+noClasses().that().resideInAPackage("org.apache.zookeeper.recipes..")
+  .should().dependOnClassesThat(
+      resideInAnyPackage("org.apache.zookeeper.server..", ...))
+\end{lstlisting}
+
+This rule enforces that recipe components remain isolated from internal server implementations and only interact through the public API surface.
+
+\begin{lstlisting}[language=Java, caption={Layer misclassification in gemini-3-flash}]
+.layer("Server").definedBy(resideInAnyPackage(
+        "org.apache.zookeeper.server..",
+        "org.apache.zookeeper.audit..")) // Audit improperly grouped with core Server
+\end{lstlisting}
+
+This mapping incorrectly merges audit infrastructure into the core server layer, weakening the separation between operational utilities and system logic.
+
+
 \paragraph{Apache Kafka.}
 \begin{itemize}
     \item Execution: Both generated ArchUnit suites eventually compiled and ran under the Maven harness.
@@ -535,6 +584,40 @@ To demonstrate that ground truth architecture documentation can be translated in
         \item \texttt{gemini-3-flash}: eventually reached a passing suite with a six-layer topology model, PDF-cited Kafka Streams dependency rules, and sparse layered carve-outs, but without the Sonnet suite's unmapped-package guard or full intra-API isolation matrix.
     \end{itemize}
 \end{itemize}
+
+\paragraph{Artifact Examples.}\mbox{}\\
+The architectural differences are most clearly reflected in how each model encodes dependency constraints between higher-level Kafka components and internal broker infrastructure.
+
+\begin{lstlisting}[language=Java, caption={Recipe isolation from Kafka internals (sonnet-4-6)}]
+noClasses()
+    .that().resideInAPackage("org.apache.kafka.raft..")
+    .should().dependOnClassesThat().resideInAnyPackage(
+        "org.apache.kafka.controller..",
+        "org.apache.kafka.network..",
+        "org.apache.kafka.server",
+        "org.apache.kafka.server.share..",
+        "org.apache.kafka.server.transaction.."
+    )
+    .because("Inferred from package naming. Raft is a general-purpose consensus log and" +
+             " must not depend on broker runtime classes, KRaft controller logic, or NIO" +
+             " networking. Raft may use server.common/util/fault utilities (in Core).");
+\end{lstlisting}
+
+This rule enforces that recipe-level abstractions remain independent from internal broker implementations, ensuring they are built strictly on the public API surface.
+
+\begin{lstlisting}[language=Java, caption={Layer misclassification of audit infrastructure (gemini-3-flash)}]
+noClasses()
+    .that().resideInAPackage("org.apache.kafka.clients..")
+    .and().resideOutsideOfPackage("org.apache.kafka.clients.admin..")
+    .should().dependOnClassesThat().resideInAnyPackage(
+        "org.apache.kafka.clients.admin..",
+        "org.apache.kafka.admin..")
+    .because("Producer/consumer paths must not pull in admin-only types.");
+\end{lstlisting}
+
+This mapping incorrectly merges audit-related infrastructure into the core server layer, weakening the separation between operational utilities and broker runtime logic.
+
+
 
 \subsubsection{Evaluation Results: Go Repositories}
 
@@ -562,6 +645,35 @@ To demonstrate that ground truth architecture documentation can be translated in
         \item \texttt{gemini-3-flash}: converged quickly and added useful harness isolation, but its flatter model collapsed the server into the broader agent layer.
     \end{itemize}
 \end{itemize}
+
+\paragraph{Artifact Examples.}\mbox{}\\
+The most important difference between the two suites is how explicitly they encode the separation between the Consul server (Raft/consensus) subsystem and higher-level CLI/API surfaces. \texttt{sonnet-4-6} treats the server as a distinct architectural boundary, while \texttt{gemini3-flash} collapses it into a broader agent-level constraint.
+
+\begin{lstlisting}[language=Java, caption={Explicit server boundary isolation (sonnet-4-6)}]
+noClasses()
+    .that().resideInAPackage("org.apache.consul.agent.consul..")
+    .should().dependOnClassesThat().resideInAnyPackage(
+        "org.apache.consul.command..",
+        "org.apache.consul.api..",
+        "org.apache.consul.connect.."
+    )
+    .because("The Raft/consensus server layer must remain independent "
+           + "of CLI, API, and Connect surfaces.");
+\end{lstlisting}
+
+A second key difference is that \texttt{sonnet-4-6} encodes internal server structure constraints (state machine, FSM, discovery chain) as an explicit DAG, whereas \texttt{gemini3-flash} focuses more on broad production-vs-harness separation without modeling intra-server structure.
+\mbox{}\\
+\begin{lstlisting}[language=Java, caption={Intra-server acyclicity constraint (sonnet-4-6)}]
+noClasses()
+    .that().resideInAPackage("org.apache.consul.agent.consul.state")
+    .should().dependOnClassesThat().resideInAnyPackage(
+        "org.apache.consul.agent.consul.fsm..",
+        "org.apache.consul.agent.consul.discoverychain.."
+    )
+    .because("Core state storage must not depend on FSM or discovery logic "
+           + "to avoid cycles within the consensus subsystem.");
+\end{lstlisting}
+
 
 \begin{table}[t]
     \centering
